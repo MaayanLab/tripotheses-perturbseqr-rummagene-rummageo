@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+node_modules
+.next
+data
+crossing
+ingest
+db
+enrich
+**/.venv
+**/__pycache__
+**/*.pyc
+**/*.tsbuildinfo
+*.log

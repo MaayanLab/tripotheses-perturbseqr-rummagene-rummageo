@@ -1,0 +1,15 @@
+[project]
+name = "tripotheses-crossing"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = ["maayanlab-bioinformatics", "scipy"]
+
+[dependency-groups]
+dev = ["pytest>=9"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.uv.sources]
+maayanlab-bioinformatics = { git = "https://github.com/MaayanLab/maayanlab-bioinformatics.git", branch = "python3.14-compat" }

@@ -1,0 +1,52 @@
+name: tripothesis-cleanup
+services:
+  app:
+    profiles: [production]
+    build: .
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres/${POSTGRES_DB:-tripothesis}
+      ENRICH_URL: http://enrich:8000
+      PUBLIC_URL: ${PUBLIC_URL:-http://localhost:3002}
+      INTERNAL_APP_URL: http://localhost:3000
+      AUTHORIZATION_HEADER: ${AUTHORIZATION_HEADER:-Token local-development}
+      ENRICH_GRAPHIQL: ${ENRICH_GRAPHIQL:-false}
+      NODE_ENV: production
+    ports:
+      - "${APP_PORT:-3002}:3000"
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      enrich:
+        condition: service_started
+
+  postgres:
+    build: db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tripothesis}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      ENRICH_URL: http://enrich:8000
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-tripothesis}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  enrich:
+    build: enrich
+    environment:
+      ROCKET_DATABASES: '{postgres={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres/${POSTGRES_DB:-tripothesis}"}}'
+    ports:
+      - "${ENRICH_PORT:-8002}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

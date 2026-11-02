@@ -1,0 +1,119 @@
+query Stats {
+  userGeneSetCount
+  geneSets {
+    totalCount
+  }
+}
+
+query FetchUserGeneSet($id: UUID!) {
+  userGeneSet(id: $id) {
+    genes
+    description
+  }
+}
+
+query EnrichmentQuery(
+  $genes: [String]!
+  $filterTerm: String = ""
+  $offset: Int = 0
+  $first: Int = 10
+) {
+  currentBackground {
+    enrich(genes: $genes, filterTerm: $filterTerm, offset: $offset, first: $first) {
+      nodes {
+        geneSetHash
+        pvalue
+        adjPvalue
+        oddsRatio
+        nOverlap
+        geneSets {
+          nodes {
+            id
+            term
+            title
+            description
+            nGeneIds
+          }
+          totalCount
+        }
+      }
+      totalCount
+    }
+  }
+}
+
+query TermSearch(
+  $terms: [String]!
+  $offset: Int = 0
+  $first: Int = 10000
+) {
+  geneSetTermSearch(
+    terms: $terms
+    offset: $offset
+    first: $first
+  ) {
+    nodes {
+      id
+      term
+      title
+      description
+      nGeneIds
+      tripothesis {
+        threeWayOverlapCount
+        pValueConservative
+      }
+    }
+    totalCount
+  }
+}
+
+mutation AddUserGeneSet($genes: [String], $description: String = "") {
+  addUserGeneSet(input: {genes: $genes, description: $description}) {
+    userGeneSet {
+      id
+    }
+  }
+}
+
+query ViewGeneSet($id: UUID!) {
+  geneSet(id: $id) {
+    term
+    title
+    description
+    genes {
+      nodes {
+        symbol
+        ncbiGeneId
+        description
+        summary
+      }
+    }
+  }
+}
+
+query OverlapQuery($id: UUID!, $genes: [String]!) {
+  geneSet(id: $id) {
+    overlap(genes: $genes) {
+      nodes {
+        symbol
+        ncbiGeneId
+        description
+        summary
+      }
+    }
+  }
+}
+
+query FetchGeneInfo($genes: [String]!) {
+  geneMap(genes: $genes) {
+    nodes {
+      gene
+      geneInfo {
+        symbol
+        ncbiGeneId
+        description
+        summary
+      }
+    }
+  }
+}
