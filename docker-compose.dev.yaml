@@ -1,0 +1,102 @@
+name: tripotheses-lite
+
+services:
+  tripotheses-lite-postgres:
+    build: db
+    image: johnkgardner/tripotheses-lite-postgres:0.1.0
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    shm_size: 256m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-tripotheses_lite}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.k8s-dev}
+      ENRICH_URL: http://tripotheses-lite-enrich:8000
+    ports:
+      - "5432:5432"
+    volumes:
+      - tripotheses-lite-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.1'
+          memory: 512m
+        limits:
+          memory: 2g
+    x-kubernetes:
+      labels:
+        app.kubernetes.io/name: tripotheses-lite-postgres
+      strategy:
+        type: Recreate
+
+  tripotheses-lite-enrich:
+    profiles: [web]
+    build: enrich
+    image: johnkgardner/tripotheses-lite-enrich:0.1.0
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    environment:
+      ROCKET_DATABASES: '{postgres={url="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.k8s-dev}@tripotheses-lite-postgres/${POSTGRES_DB:-tripotheses_lite}"}}'
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.1'
+          memory: 256m
+        limits:
+          memory: 1g
+    x-kubernetes:
+      labels:
+        app.kubernetes.io/name: tripotheses-lite-enrich
+
+  tripotheses-lite-app:
+    profiles: [web]
+    build: .
+    image: johnkgardner/tripotheses-lite-app:0.1.0
+    platform: linux/amd64
+    pull_policy: missing
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.k8s-dev}@tripotheses-lite-postgres/${POSTGRES_DB:-tripotheses_lite}?sslmode=disable
+      ENRICH_URL: http://tripotheses-lite-enrich:8000
+      PUBLIC_URL: https://tripotheses-lite.k8s.maayanlab.cloud
+      INTERNAL_APP_URL: http://localhost:3000
+      AUTHORIZATION_HEADER: ${AUTHORIZATION_HEADER:?Set AUTHORIZATION_HEADER in .env.k8s-dev}
+      ENRICH_GRAPHIQL: 'false'
+      PG_SETTINGS: '{"random_page_cost":"1.1","statement_timeout":"60000"}'
+      NODE_ENV: production
+      DATA_DIR: /app/data
+    ports:
+      - target: 3000
+        published: 3000
+        x-kubernetes:
+          annotations:
+            maayanlab.cloud/ingress: https://tripotheses-lite.k8s.maayanlab.cloud
+    deploy:
+      resources:
+        reservations:
+          cpus: '0.1'
+          memory: 256m
+        limits:
+          memory: 1g
+    x-kubernetes:
+      labels:
+        app.kubernetes.io/name: tripotheses-lite-app
+
+volumes:
+  tripotheses-lite-postgres-data:
+    x-kubernetes:
+      size: 20Gi
+      class: ceph-block
+
+x-kubernetes:
+  name: tripotheses-lite
+  namespace: johnkgardner

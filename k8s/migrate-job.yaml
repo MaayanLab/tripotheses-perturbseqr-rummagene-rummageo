@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: tripotheses-lite-migrate-
+  namespace: johnkgardner
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 43200
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: amacneil/dbmate:2.28.0
+          args: ["--wait", "--no-dump-schema", "up"]
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef: { name: tripotheses-lite-env, key: POSTGRES_DB }
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: tripotheses-lite-env, key: POSTGRES_USER }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: tripotheses-lite-env, key: POSTGRES_PASSWORD }
+            - name: DATABASE_URL
+              value: postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@tripotheses-lite-postgres/$(POSTGRES_DB)?sslmode=disable
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          volumeMounts:
+            - name: migrations
+              mountPath: /db/migrations
+              readOnly: true
+      volumes:
+        - name: migrations
+          configMap:
+            name: tripotheses-lite-migrations
