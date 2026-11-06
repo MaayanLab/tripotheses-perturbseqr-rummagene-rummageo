@@ -67,6 +67,19 @@ query TermSearch(
   }
 }
 
+query TripothesisDetail($id: UUID!) {
+  geneSet(id: $id) {
+    id
+    tripothesis {
+      tripothesisId
+      finalRank
+      sourceCrossing
+      modalityCrossing
+      sourceRecord
+    }
+  }
+}
+
 mutation AddUserGeneSet($genes: [String], $description: String = "") {
   addUserGeneSet(input: {genes: $genes, description: $description}) {
     userGeneSet {

@@ -741,6 +741,13 @@ export type TermSearchQueryVariables = Exact<{
 
 export type TermSearchQuery = { __typename?: 'Query', geneSetTermSearch?: { __typename?: 'GeneSetsConnection', totalCount: number, nodes: Array<{ __typename?: 'GeneSet', id: any, term: string, title?: string | null, description?: string | null, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', threeWayOverlapCount?: number | null, pValueConservative?: number | null } | null }> } | null };
 
+export type TripothesisDetailQueryVariables = Exact<{
+  id: Scalars['UUID']['input'];
+}>;
+
+
+export type TripothesisDetailQuery = { __typename?: 'Query', geneSet?: { __typename?: 'GeneSet', id: any, tripothesis?: { __typename?: 'TripothesisMetadatum', tripothesisId: string, finalRank?: number | null, sourceCrossing?: string | null, modalityCrossing?: string | null, sourceRecord: any } | null } | null };
+
 export type AddUserGeneSetMutationVariables = Exact<{
   genes?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>>;
   description?: InputMaybe<Scalars['String']['input']>;
@@ -948,6 +955,48 @@ export function useTermSearchLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions
 export type TermSearchQueryHookResult = ReturnType<typeof useTermSearchQuery>;
 export type TermSearchLazyQueryHookResult = ReturnType<typeof useTermSearchLazyQuery>;
 export type TermSearchQueryResult = Apollo.QueryResult<TermSearchQuery, TermSearchQueryVariables>;
+export const TripothesisDetailDocument = gql`
+    query TripothesisDetail($id: UUID!) {
+  geneSet(id: $id) {
+    id
+    tripothesis {
+      tripothesisId
+      finalRank
+      sourceCrossing
+      modalityCrossing
+      sourceRecord
+    }
+  }
+}
+    `;
+
+/**
+ * __useTripothesisDetailQuery__
+ *
+ * To run a query within a React component, call `useTripothesisDetailQuery` and pass it any options that fit your needs.
+ * When your component renders, `useTripothesisDetailQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useTripothesisDetailQuery({
+ *   variables: {
+ *      id: // value for 'id'
+ *   },
+ * });
+ */
+export function useTripothesisDetailQuery(baseOptions: Apollo.QueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
+      }
+export function useTripothesisDetailLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
+        }
+export type TripothesisDetailQueryHookResult = ReturnType<typeof useTripothesisDetailQuery>;
+export type TripothesisDetailLazyQueryHookResult = ReturnType<typeof useTripothesisDetailLazyQuery>;
+export type TripothesisDetailQueryResult = Apollo.QueryResult<TripothesisDetailQuery, TripothesisDetailQueryVariables>;
 export const AddUserGeneSetDocument = gql`
     mutation AddUserGeneSet($genes: [String], $description: String = "") {
   addUserGeneSet(input: {genes: $genes, description: $description}) {

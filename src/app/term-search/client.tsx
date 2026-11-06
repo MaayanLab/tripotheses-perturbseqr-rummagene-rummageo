@@ -3,13 +3,18 @@ import React from 'react'
 import { useTermSearchQuery } from '@/graphql'
 import TermTable from '@/components/termTable'
 import useQsState from '@/utils/useQsState'
-import Stats from '@/components/stats'
 
 export function TermSearchResults({ terms }: { terms: string }) {
-  const { data, error } = useTermSearchQuery({ variables: { terms: [terms], first: 10000 } })
+  const { data, error, loading } = useTermSearchQuery({ variables: { terms: [terms], first: 10000 } })
   if (error) return <p role="alert">{error.message}</p>
-  if (!data) {
-    return <p>Searching <Stats show_gene_sets />.</p>
+  if (loading || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-4 w-full min-h-[50vh] p-5 text-center" role="status" aria-live="polite">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/images/venn-loading.svg" width={240} height={229} alt="Loading..." />
+        <p className="text-lg">Searching Gene Sets</p>
+      </div>
+    )
   }
   return (
     <div className="flex flex-col gap-2 my-2">

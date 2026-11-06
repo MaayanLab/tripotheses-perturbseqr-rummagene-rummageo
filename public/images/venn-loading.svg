@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 130 124" width="130" height="124" role="img" aria-label="Loading">
+  <!-- Three-way Venn: RummaGene (slate), RummaGEO (teal), Perturb-Seqr (cyan); each circle shades in turn -->
+  <g stroke-width="2.5">
+    <circle cx="47" cy="47" r="30" fill="#6b7280" stroke="#6b7280" fill-opacity="0">
+      <animate attributeName="fill-opacity" values="0;0.55;0;0" keyTimes="0;0.2;0.4;1" dur="1.8s" begin="0s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="83" cy="47" r="30" fill="#1b9a9a" stroke="#1b9a9a" fill-opacity="0">
+      <animate attributeName="fill-opacity" values="0;0.55;0;0" keyTimes="0;0.2;0.4;1" dur="1.8s" begin="0.6s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="65" cy="78" r="30" fill="#22b8cf" stroke="#22b8cf" fill-opacity="0">
+      <animate attributeName="fill-opacity" values="0;0.55;0;0" keyTimes="0;0.2;0.4;1" dur="1.8s" begin="1.2s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+</svg>
