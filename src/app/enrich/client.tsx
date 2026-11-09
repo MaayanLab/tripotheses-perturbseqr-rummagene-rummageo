@@ -13,8 +13,10 @@ import Pagination from '@/components/pagination'
 import useQsState from '@/utils/useQsState'
 import GeneSetModal from '@/components/geneSetModal'
 import * as array from '@/utils/array'
+import { SOURCE_COLUMN_COUNT, SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
 
 const pageSize = 10
+const statColumnCount = 5
 
 type GeneSetModalT = {
   type: 'UserGeneSet',
@@ -43,13 +45,20 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
     () => ({ page: queryString.page ? +queryString.page : 1, term: queryString.q ?? '' }),
     [queryString]
   )
-  const { data: enrichmentResults, error } = useEnrichmentQueryQuery({
+  const { data: enrichmentResults, loading, error } = useEnrichmentQueryQuery({
     skip: genes.length === 0,
     variables: { genes, filterTerm: term, offset: (page - 1) * pageSize, first: pageSize },
   })
   const results = enrichmentResults?.currentBackground?.enrich
 
   React.useEffect(() => { setRawTerm(term) }, [term])
+
+  if (!loading && enrichmentResults?.currentBackground === null) {
+    return <div className="flex flex-col gap-2 my-2" role="status">
+      <h2 className="text-md font-bold">Crossings are not loaded yet.</h2>
+      <p>Crossings are still being generated; enrichment is not available yet.</p>
+    </div>
+  }
 
   return (
     <div className="flex flex-col gap-2 my-2">
@@ -77,45 +86,33 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
           className="btn join-item"
           onClick={() => { setQueryString({ page: '1', q: '' }) }}
         >Clear</button>
-        <a className="btn join-item" href={`/enrich/download?query=${queryId}&q=${encodeURIComponent(term)}`} download="results.tsv">
+        {results ? <a className="btn join-item" href={`/enrich/download?query=${queryId}&q=${encodeURIComponent(term)}`} download="results.tsv">
           Download
-        </a>
+        </a> : null}
       </form>
       <div className="overflow-x-auto">
-        <table className="table table-xs">
+        <table className={tripothesisTableClass}>
           <thead>
+            <SourceGroupHeaders extraColumns={statColumnCount} />
             <tr>
-              <th>Tripothesis title</th>
-              <th>Description</th>
-              <th>Gene Set Size</th>
-              <th>Overlap</th>
-              <th>Odds Ratio</th>
-              <th>P-value</th>
-              <th>Adjusted P-value</th>
+              <SourceColumnHeaders />
+              <th className="text-right">Overlap</th>
+              <th className="text-right">Odds Ratio</th>
+              <th className="text-right">P-value</th>
+              <th className="text-right">Adjusted P-value</th>
+              <th>Genes</th>
             </tr>
           </thead>
           <tbody>
-            {!results && !error ? <tr><td colSpan={7}><Loading /></td></tr> : null}
+            {!results && !error ? <tr><td colSpan={SOURCE_COLUMN_COUNT + statColumnCount}><Loading /></td></tr> : null}
             {results?.nodes?.flatMap((result, resultIndex) =>
               result?.geneSets?.nodes?.map((geneSet, geneSetIndex) =>
                 <tr key={`${resultIndex}-${geneSetIndex}-${geneSet.id}`}>
-                  <td>
-                    <button
-                      className="link text-left"
-                      onClick={() => {
-                        setModalGeneSet({
-                          type: 'GeneSet',
-                          id: geneSet.id,
-                          description: geneSet.title || geneSet.term || '',
-                        })
-                      }}
-                    >{geneSet.title || geneSet.term}</button>
-                  </td>
-                  <td>{geneSet.description}</td>
-                  <td>{geneSet.nGeneIds}</td>
-                  <td>
+                  <SourceCells id={geneSet.id} title={geneSet.title} />
+                  <td className="text-right tabular-nums">
                     <button
                       className="link"
+                      title="View the overlapping genes"
                       onClick={() => {
                         setModalGeneSet({
                           type: 'GeneSetOverlap',
@@ -126,9 +123,21 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
                       }}
                     >{result.nOverlap}</button>
                   </td>
-                  <td>{result.oddsRatio?.toPrecision(3)}</td>
-                  <td>{result.pvalue?.toPrecision(3)}</td>
-                  <td>{result.adjPvalue?.toPrecision(3)}</td>
+                  <td className="text-right tabular-nums">{result.oddsRatio?.toPrecision(3)}</td>
+                  <td className="text-right tabular-nums whitespace-nowrap">{result.pvalue?.toPrecision(3)}</td>
+                  <td className="text-right tabular-nums whitespace-nowrap">{result.adjPvalue?.toPrecision(3)}</td>
+                  <td>
+                    <button
+                      className="btn btn-xs btn-outline normal-case whitespace-nowrap"
+                      onClick={() => {
+                        setModalGeneSet({
+                          type: 'GeneSet',
+                          id: geneSet.id,
+                          description: geneSet.title || geneSet.term || '',
+                        })
+                      }}
+                    >View ({geneSet.nGeneIds})</button>
+                  </td>
                 </tr>
               ) ?? []
             )}

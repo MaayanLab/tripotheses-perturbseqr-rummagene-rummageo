@@ -732,6 +732,14 @@ export type EnrichmentQueryQueryVariables = Exact<{
 
 export type EnrichmentQueryQuery = { __typename?: 'Query', currentBackground?: { __typename?: 'Background', enrich?: { __typename?: 'PaginatedEnrichResult', totalCount?: number | null, nodes?: Array<{ __typename?: 'EnrichResult', geneSetHash?: any | null, pvalue?: number | null, adjPvalue?: number | null, oddsRatio?: number | null, nOverlap?: number | null, geneSets: { __typename?: 'GeneSetsConnection', totalCount: number, nodes: Array<{ __typename?: 'GeneSet', id: any, term: string, title?: string | null, description?: string | null, nGeneIds: number }> } } | null> | null } | null } | null };
 
+export type EnrichmentDownloadQueryVariables = Exact<{
+  genes: Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>;
+  filterTerm?: InputMaybe<Scalars['String']['input']>;
+}>;
+
+
+export type EnrichmentDownloadQuery = { __typename?: 'Query', currentBackground?: { __typename?: 'Background', enrich?: { __typename?: 'PaginatedEnrichResult', nodes?: Array<{ __typename?: 'EnrichResult', geneSetHash?: any | null, pvalue?: number | null, adjPvalue?: number | null, oddsRatio?: number | null, nOverlap?: number | null, geneSets: { __typename?: 'GeneSetsConnection', nodes: Array<{ __typename?: 'GeneSet', id: any, term: string, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', sourceRecord: any } | null }> } } | null> | null } | null } | null };
+
 export type TermSearchQueryVariables = Exact<{
   terms: Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
@@ -907,6 +915,60 @@ export function useEnrichmentQueryLazyQuery(baseOptions?: Apollo.LazyQueryHookOp
 export type EnrichmentQueryQueryHookResult = ReturnType<typeof useEnrichmentQueryQuery>;
 export type EnrichmentQueryLazyQueryHookResult = ReturnType<typeof useEnrichmentQueryLazyQuery>;
 export type EnrichmentQueryQueryResult = Apollo.QueryResult<EnrichmentQueryQuery, EnrichmentQueryQueryVariables>;
+export const EnrichmentDownloadDocument = gql`
+    query EnrichmentDownload($genes: [String]!, $filterTerm: String = "") {
+  currentBackground {
+    enrich(genes: $genes, filterTerm: $filterTerm, offset: 0, first: null) {
+      nodes {
+        geneSetHash
+        pvalue
+        adjPvalue
+        oddsRatio
+        nOverlap
+        geneSets {
+          nodes {
+            id
+            term
+            nGeneIds
+            tripothesis {
+              sourceRecord
+            }
+          }
+        }
+      }
+    }
+  }
+}
+    `;
+
+/**
+ * __useEnrichmentDownloadQuery__
+ *
+ * To run a query within a React component, call `useEnrichmentDownloadQuery` and pass it any options that fit your needs.
+ * When your component renders, `useEnrichmentDownloadQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useEnrichmentDownloadQuery({
+ *   variables: {
+ *      genes: // value for 'genes'
+ *      filterTerm: // value for 'filterTerm'
+ *   },
+ * });
+ */
+export function useEnrichmentDownloadQuery(baseOptions: Apollo.QueryHookOptions<EnrichmentDownloadQuery, EnrichmentDownloadQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<EnrichmentDownloadQuery, EnrichmentDownloadQueryVariables>(EnrichmentDownloadDocument, options);
+      }
+export function useEnrichmentDownloadLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<EnrichmentDownloadQuery, EnrichmentDownloadQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<EnrichmentDownloadQuery, EnrichmentDownloadQueryVariables>(EnrichmentDownloadDocument, options);
+        }
+export type EnrichmentDownloadQueryHookResult = ReturnType<typeof useEnrichmentDownloadQuery>;
+export type EnrichmentDownloadLazyQueryHookResult = ReturnType<typeof useEnrichmentDownloadLazyQuery>;
+export type EnrichmentDownloadQueryResult = Apollo.QueryResult<EnrichmentDownloadQuery, EnrichmentDownloadQueryVariables>;
 export const TermSearchDocument = gql`
     query TermSearch($terms: [String]!, $offset: Int = 0, $first: Int = 10000) {
   geneSetTermSearch(terms: $terms, offset: $offset, first: $first) {

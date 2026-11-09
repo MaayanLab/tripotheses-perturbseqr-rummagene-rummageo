@@ -1,7 +1,8 @@
-import { EnrichmentQueryDocument, EnrichmentQueryQuery, FetchUserGeneSetDocument, FetchUserGeneSetQuery } from '@/graphql'
+import { EnrichmentDownloadDocument, EnrichmentDownloadQuery, FetchUserGeneSetDocument, FetchUserGeneSetQuery } from '@/graphql'
 import { getClient } from '@/lib/apollo/client'
 import * as array from '@/utils/array'
 import streamTsv from '@/utils/streamTsv'
+import { TRIPOTHESIS_TSV_COLUMNS, parseTripothesis, tripothesisTsvRow } from '@/utils/tripothesisTerms'
 
 export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
@@ -16,23 +17,24 @@ export async function GET(request: Request) {
     variables: { id: queryId },
   })
   if (userGeneSetError) throw new Error(userGeneSetError.message)
+  if (!userGeneSet.userGeneSet) {
+    return new Response('Gene set not found', { status: 404 })
+  }
   const genes = array.ensure(userGeneSet.userGeneSet?.genes).filter((gene): gene is string => !!gene).map(gene => gene.toUpperCase())
-  const { data: enrichmentResults, error: enrichmentResultsError } = await getClient().query<EnrichmentQueryQuery>({
-    query: EnrichmentQueryDocument,
-    variables: {
-      genes,
-      filterTerm: term,
-      offset: 0,
-      first: null,
-    },
+  const { data: enrichmentResults, error: enrichmentResultsError } = await getClient().query<EnrichmentDownloadQuery>({
+    query: EnrichmentDownloadDocument,
+    variables: { genes, filterTerm: term },
   })
   if (enrichmentResultsError) throw new Error(enrichmentResultsError.message)
+  if (!enrichmentResults.currentBackground) {
+    return new Response('Crossings are not loaded yet; enrichment is not available.', { status: 503 })
+  }
   const nodes = enrichmentResults.currentBackground?.enrich?.nodes
   if (!nodes) throw new Error('No results')
 
   return new Response(
     streamTsv(
-      ['term', 'tripothesisId', 'description', 'geneSetSize', 'nOverlap', 'oddsRatio', 'pvalue', 'adjPvalue', 'geneSetHash'],
+      ['tripothesisId', ...TRIPOTHESIS_TSV_COLUMNS, 'geneSetSize', 'nOverlap', 'oddsRatio', 'pvalue', 'adjPvalue', 'geneSetHash'],
       nodes.flatMap(node => node?.geneSets.nodes.map(geneSet => ({
         geneSetHash: node.geneSetHash,
         geneSet,
@@ -42,9 +44,8 @@ export async function GET(request: Request) {
         oddsRatio: node.oddsRatio,
       }))),
       item => item?.geneSet ? {
-        term: item.geneSet.title || item.geneSet.term,
         tripothesisId: item.geneSet.term,
-        description: item.geneSet.description,
+        ...tripothesisTsvRow(parseTripothesis(item.geneSet.tripothesis?.sourceRecord)),
         geneSetSize: item.geneSet.nGeneIds,
         nOverlap: item.nOverlap,
         oddsRatio: item.oddsRatio,

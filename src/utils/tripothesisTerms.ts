@@ -240,3 +240,43 @@ export function splitTitle(title: string | null | undefined): [string, string, s
   // Rummagene paper titles may themselves contain ' × '; the last two pieces are well formed
   return [parts.slice(0, -2).join(' × '), parts[parts.length - 2], parts[parts.length - 1]]
 }
+
+/* ------------------------------------------------------------------ TSV export */
+
+/** Per-source columns for TSV downloads, in display order. */
+export const TRIPOTHESIS_TSV_COLUMNS = [
+  'rummagenePmcid', 'rummagenePaperTitle', 'rummageneGeneSet', 'rummageneTerm',
+  'rummageoGse', 'rummageoGroupA', 'rummageoGroupB', 'rummageoDirection', 'rummageoTerm',
+  'perturbseqrLibrary', 'perturbation', 'cellLine', 'tissue', 'timepoint', 'concentration',
+  'perturbseqrDirection', 'perturbseqrTerm',
+] as const
+
+export type TripothesisTsvColumn = typeof TRIPOTHESIS_TSV_COLUMNS[number]
+
+/** Tabs or newlines inside a value would break the TSV row. */
+const tsvSafe = (value: string) => value.replace(/[\t\r\n]+/g, ' ')
+
+export function tripothesisTsvRow(parsed: ParsedTripothesis | null): Record<TripothesisTsvColumn, string> {
+  const g = parsed?.rummagene, e = parsed?.rummageo, p = parsed?.perturbseqr
+  const row: Record<TripothesisTsvColumn, string> = {
+    rummagenePmcid: g?.pmcid ?? '',
+    rummagenePaperTitle: g?.paperTitle ?? '',
+    rummageneGeneSet: g?.tableLabel ?? '',
+    rummageneTerm: g?.raw ?? '',
+    rummageoGse: e?.accessions.join(',') ?? '',
+    rummageoGroupA: e ? e.groupALabel || `group ${e.groupA}` : '',
+    rummageoGroupB: e ? e.groupBLabel || `group ${e.groupB}` : '',
+    rummageoDirection: e?.direction ?? '',
+    rummageoTerm: e?.raw ?? '',
+    perturbseqrLibrary: p?.libraryLabel ?? '',
+    perturbation: p?.perturbation ?? '',
+    cellLine: p?.cellLine ?? '',
+    tissue: p?.cellType ?? '',
+    timepoint: p?.timepoint ?? '',
+    concentration: p?.concentration ?? '',
+    perturbseqrDirection: p?.direction ?? '',
+    perturbseqrTerm: p?.raw ?? '',
+  }
+  for (const key of TRIPOTHESIS_TSV_COLUMNS) row[key] = tsvSafe(row[key])
+  return row
+}

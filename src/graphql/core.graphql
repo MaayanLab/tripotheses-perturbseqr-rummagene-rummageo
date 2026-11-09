@@ -42,6 +42,33 @@ query EnrichmentQuery(
   }
 }
 
+query EnrichmentDownload(
+  $genes: [String]!
+  $filterTerm: String = ""
+) {
+  currentBackground {
+    enrich(genes: $genes, filterTerm: $filterTerm, offset: 0, first: null) {
+      nodes {
+        geneSetHash
+        pvalue
+        adjPvalue
+        oddsRatio
+        nOverlap
+        geneSets {
+          nodes {
+            id
+            term
+            nGeneIds
+            tripothesis {
+              sourceRecord
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
 query TermSearch(
   $terms: [String]!
   $offset: Int = 0

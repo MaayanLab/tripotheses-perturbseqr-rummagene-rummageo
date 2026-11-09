@@ -1,11 +1,12 @@
 import React from 'react'
-import { useTripothesisDetailQuery, useViewGeneSetQuery } from '@/graphql';
+import { useViewGeneSetQuery } from '@/graphql';
 import GeneSetModal from '@/components/geneSetModal';
 import useQsState from '@/utils/useQsState';
 import Pagination from '@/components/pagination';
 import blobTsv from '@/utils/blobTsv';
 import clientDownloadBlob from '@/utils/clientDownloadBlob';
-import { Direction, geoUrl, parseTripothesis, perturbseqrSearchUrl, pmcUrl, splitTitle } from '@/utils/tripothesisTerms'
+import { splitTitle } from '@/utils/tripothesisTerms'
+import { SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
 
 const pageSize = 10
 
@@ -18,59 +19,13 @@ type TermRow = {
   tripothesis?: { threeWayOverlapCount?: number | null; pValueConservative?: number | null } | null
 }
 
-// Very light tints of each source application's theme:
-// RummaGene is monochrome (slate), RummaGEO is teal, Perturb-Seqr uses cyan for drug libraries.
-const RG = 'bg-[#f3f4f6]'
-const GEO = 'bg-[#e6f5f2]'
-const PS = 'bg-[#e8f9fc]'
-
 const formatP = (p: number | null | undefined) =>
   p == null ? '—' : p === 0 ? '< 5e-324' : p.toExponential(2)
 
-const dir = (d: Direction) => d === 'up' ? 'Up' : d === 'down' ? 'Down' : 'N/A'
-
-function Link({ href, children }: { href: string, children: React.ReactNode }) {
-  return <a className="link link-neutral hover:link-hover" href={href} target="_blank" rel="noreferrer">{children}</a>
-}
-
-function Clamp({ text, title }: { text: string, title?: string }) {
-  return <span className="line-clamp-2" title={title ?? text}>{text || 'N/A'}</span>
-}
-
-/** GEO group descriptions share most words; keep only the words that distinguish each group. */
-function comparison(a: string, b: string) {
-  const words = (s: string) => s.split(/\s+/).filter(Boolean)
-  const setA = new Set(words(a).map(w => w.toLowerCase())), setB = new Set(words(b).map(w => w.toLowerCase()))
-  const onlyA = words(a).filter(w => !setB.has(w.toLowerCase())).join(' ')
-  const onlyB = words(b).filter(w => !setA.has(w.toLowerCase())).join(' ')
-  return `${onlyA || a} vs ${onlyB || b}`
-}
-
 function TripothesisRow({ row, onViewGenes }: { row: TermRow, onViewGenes: () => void }) {
-  const { data } = useTripothesisDetailQuery({ variables: { id: row.id }, skip: !row.id })
-  const parsed = React.useMemo(() => parseTripothesis(data?.geneSet?.tripothesis?.sourceRecord), [data])
-  const fallback = splitTitle(row.title)
-  const loading = <span className="text-gray-400">…</span>
-  const g = parsed?.rummagene, e = parsed?.rummageo, p = parsed?.perturbseqr
   return (
     <tr>
-      <td className={RG}>{g ? <Link href={pmcUrl(g.pmcid)}>{g.pmcid}</Link> : loading}</td>
-      <td className={`${RG} max-w-[220px]`}><Clamp text={g ? g.paperTitle : fallback?.[0] ?? ''} /></td>
-      <td className={`${RG} max-w-[140px]`}>{g ? <Clamp text={g.tableLabel} /> : loading}</td>
-      <td className={GEO}>{e ? e.accessions.map(acc => <div key={acc}><Link href={geoUrl(acc)}>{acc}</Link></div>) : loading}</td>
-      <td className={`${GEO} max-w-[260px]`}>
-        {e
-          ? (e.groupALabel && e.groupBLabel
-            ? <Clamp text={comparison(e.groupALabel, e.groupBLabel)} title={`${e.groupALabel}\nvs\n${e.groupBLabel}`} />
-            : `group ${e.groupA} vs group ${e.groupB}`)
-          : <Clamp text={fallback?.[1] ?? ''} />}
-      </td>
-      <td className={GEO}>{e ? dir(e.direction) : loading}</td>
-      <td className={`${PS} max-w-[140px]`}>{p ? <Link href={perturbseqrSearchUrl(p.perturbation)}>{p.perturbation}</Link> : <Clamp text={fallback?.[2] ?? ''} />}</td>
-      <td className={PS}>{p ? p.cellLine || 'N/A' : loading}</td>
-      <td className={PS}>{p ? p.timepoint || 'N/A' : loading}</td>
-      <td className={`${PS} whitespace-nowrap`}>{p ? p.concentration || 'N/A' : loading}</td>
-      <td className={PS}>{p ? dir(p.direction) : loading}</td>
+      <SourceCells id={row.id} title={row.title} />
       <td className="text-right tabular-nums">{row.tripothesis?.threeWayOverlapCount ?? row.nGeneIds ?? '—'}</td>
       <td className="text-right tabular-nums whitespace-nowrap">{formatP(row.tripothesis?.pValueConservative)}</td>
       <td>
@@ -148,26 +103,11 @@ export default function TermTable({ terms }: { terms: TermRow[] }) {
           </div>
         </div>
         <div className="overflow-x-auto">
-          <table className="table table-xs [&_th]:px-2 [&_td]:px-2">
+          <table className={tripothesisTableClass}>
             <thead>
+              <SourceGroupHeaders extraColumns={3} />
               <tr>
-                <th colSpan={3} className={`${RG} text-center border-b`}>RummaGene</th>
-                <th colSpan={3} className={`${GEO} text-center border-b`}>RummaGEO</th>
-                <th colSpan={5} className={`${PS} text-center border-b`}>Perturb-Seqr</th>
-                <th colSpan={3}></th>
-              </tr>
-              <tr>
-                <th className={RG}>Paper</th>
-                <th className={RG}>Title</th>
-                <th className={RG}>Gene Set</th>
-                <th className={GEO}>GEO Series</th>
-                <th className={GEO}>Comparison</th>
-                <th className={GEO}>Direction</th>
-                <th className={PS}>Perturbation</th>
-                <th className={PS}>Cell Line</th>
-                <th className={PS}>Timepoint</th>
-                <th className={PS}>Concentration</th>
-                <th className={PS}>Direction</th>
+                <SourceColumnHeaders />
                 <th className="text-right" title="Number of genes shared by all three source sets">Overlap</th>
                 <th className="text-right" title="Conservative raw p-value for the three-way crossing">P-value</th>
                 <th>Genes</th>
