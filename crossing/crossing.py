@@ -1,37 +1,27 @@
-"""Indexed three-way top-K crossing with cached scoring and pair-bound pruning."""
+"""Uncapped top-K source triplets using exact cached three-way scoring."""
 
 import argparse
 import csv
-import heapq
+import gzip
 import math
 import multiprocessing
-import os
 import time
-from collections import Counter
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
-from fileinput import FileInput, hook_compressed
 from functools import lru_cache
-from itertools import count, islice
+from itertools import islice
 from pathlib import Path
 
-from maayanlab_bioinformatics.harmonization.ncbi_genes import ncbi_genes_fetch
-from maayanlab_bioinformatics.parse.gmt import gmt_read_iter, parse_gene_unweighted
+import numpy as np
 from scipy.stats import hypergeom
 
-from index import build_inverted_index
+from index import GeneSet, Library, MappedLibrary, count_overlaps
+from results import TopK, ranking_key, write_results
 
-PROJECT_DIRECTORY = Path(__file__).resolve().parents[1]
-DATA_DIRECTORY = PROJECT_DIRECTORY / 'data'
+POPULATION = 20_574
 TOP_K = 100_000
-BOUND_LOG_PVALUE_TOLERANCE = 1e-7
-
-
-@dataclass
-class GeneSet:
-    term: str
-    genes: frozenset[str]
-    input_row: int
+BOUND_TOLERANCE = 1e-7
+DATA_DIRECTORY = Path(__file__).resolve().parents[1] / 'data'
 
 
 @dataclass
@@ -39,321 +29,214 @@ class Crossing:
     rummagene: GeneSet
     perturbseqr: GeneSet
     rummageo: GeneSet
-    genes: frozenset[str]
+    genes: frozenset
     log_pvalue: float
     jaccard: float
 
 
-def human_protein_coding_count():
-    """Count cached human protein-coding symbols for N; do not filter inputs."""
-    annotations = ncbi_genes_fetch(
-        organism='Mammalia/Homo_sapiens',
-        cache_dir=str(DATA_DIRECTORY / 'background'),
-    )
-    return int(annotations['Symbol'].nunique())
+def conservative_log_pvalue(rummagene, perturbseqr, rummageo, overlap_size, population, logsf=hypergeom.logsf):
+    genes = rummagene.genes, perturbseqr.genes, rummageo.genes
+    return max(float(logsf(overlap_size - 1, population, len(genes[i]),
+        len(genes[(i + 1) % 3] & genes[(i + 2) % 3]))) for i in range(3))
 
 
-def read_gmt(path, limit=None):
-    """Read literal genes, preserving duplicate terms and physical row identities."""
-    signatures = []
-    with FileInput(files=[str(path)], openhook=hook_compressed, encoding='utf-8') as source:
-        records = gmt_read_iter(source, parse_gene=parse_gene_unweighted)
-        for header, genes in islice(records, limit):
-            term = header.partition('\t')[0]  # Shared reader joins term and description.
-            signatures.append(GeneSet(term, frozenset(genes), source.filelineno()))
-    if not signatures:
-        raise ValueError(f'{path}: empty GMT')
-    return signatures
-
-
-def conservative_log_pvalue(rummagene, perturbseqr, rummageo, overlap_size, population,
-                            *, rummagene_perturbseqr_overlap_count,
-                            hypergeometric_log_pvalue=None, log_pvalue_cutoff=0.0):
-    """Maximum leave-one-out log P(overlap≥k); return None if a component fails."""
-    if hypergeometric_log_pvalue is None:
-        hypergeometric_log_pvalue = hypergeom.logsf
-
-    # This component needs no additional pairwise intersection.
-    rummageo_log_pvalue = hypergeometric_log_pvalue(
-        overlap_size - 1, population, len(rummageo.genes),
-        rummagene_perturbseqr_overlap_count,
-    )
-    if rummageo_log_pvalue > log_pvalue_cutoff:
-        return None
-
-    rummagene_log_pvalue = hypergeometric_log_pvalue(
-        overlap_size - 1, population, len(rummagene.genes),
-        len(perturbseqr.genes & rummageo.genes),
-    )
-    if rummagene_log_pvalue > log_pvalue_cutoff:
-        return None
-    perturbseqr_log_pvalue = hypergeometric_log_pvalue(
-        overlap_size - 1, population, len(perturbseqr.genes),
-        len(rummagene.genes & rummageo.genes),
-    )
-    if perturbseqr_log_pvalue > log_pvalue_cutoff:
-        return None
-    return float(max(rummagene_log_pvalue, perturbseqr_log_pvalue, rummageo_log_pvalue))
-
-
-def optimistic_log_pvalue(source_sizes, overlap_count, population):
-    """Log[choose(max known source size, overlap)/choose(N, overlap)]."""
-    largest_source_size = max(source_sizes)
-    if largest_source_size > population:
-        # Do not prune using a bound outside the model's valid size range.
-        return -math.inf
-    return (
-        math.lgamma(largest_source_size + 1)
-        - math.lgamma(largest_source_size - overlap_count + 1)
-        - math.lgamma(population + 1)
-        + math.lgamma(population - overlap_count + 1)
-    )
-
-
-def ranking_key(result):
-    """Higher is better: significance, Jaccard, overlap, then source identities."""
-    return (
-        -result.log_pvalue, result.jaccard, len(result.genes),
-        result.rummagene.term, result.rummagene.input_row,
-        result.rummageo.term, result.rummageo.input_row,
-        result.perturbseqr.term, result.perturbseqr.input_row,
-    )
-
-
-def retain_candidate(heap, candidate, sequence, top_k):
-    entry = (ranking_key(candidate), -next(sequence), candidate)
-    if len(heap) < top_k:
-        heapq.heappush(heap, entry)
-    elif entry[:2] > heap[0][:2]:
-        heapq.heapreplace(heap, entry)
-
-
-@dataclass
 class CrossingSearch:
-    rummagene_sets: list
-    perturbseqr_sets: list
-    rummageo_sets: list
-    population: int
-    minimum_overlap: int
-    maximum_pvalue: float
-    top_k: int
-    shared_log_pvalue_cutoff: object = None
+    def __init__(self, libraries, population, minimum_overlap, maximum_pvalue, top_k):
+        self.rummagene, self.perturbseqr, self.rummageo = libraries
+        self.population, self.minimum_overlap, self.top_k = population, minimum_overlap, top_k
+        self.eligibility_cutoff = math.log(maximum_pvalue)
+        self.perturbseqr_index, self.rummageo_index = self.perturbseqr.postings, self.rummageo.postings
+        self.maximum_overlap = min(max(self.perturbseqr.sizes, default=0), max(self.rummageo.sizes, default=0))
+        self.logsf = lru_cache(maxsize=100000)(hypergeom.logsf)
+        self.pair_overlap = lru_cache(maxsize=100000)(lambda p, g: len(self.perturbseqr[p].genes & self.rummageo[g].genes))
+        self.gamma = np.array([math.lgamma(i + 1) for i in range(population + 1)])
+        self.bound = lru_cache(maxsize=100000)(self.bound)
 
-    def __post_init__(self):
-        self.perturbseqr_gene_index = build_inverted_index(self.perturbseqr_sets)
-        self.rummageo_gene_index = build_inverted_index(self.rummageo_sets)
-        self.cached_hypergeometric_log_pvalue = lru_cache(maxsize=100_000)(hypergeom.logsf)
+    def bound(self, largest_size, overlap):
+        if largest_size > self.population:
+            return -math.inf
+        return ((self.gamma[largest_size] - self.gamma[largest_size - overlap])
+                - self.gamma[self.population]) + self.gamma[self.population - overlap]
 
-    def cutoff(self, heap):
-        cutoff = math.log(self.maximum_pvalue)
-        if self.shared_log_pvalue_cutoff is not None:
-            cutoff = min(cutoff, self.shared_log_pvalue_cutoff.value)
-        if len(heap) == self.top_k:
-            cutoff = min(cutoff, -heap[0][0][0])
-        return cutoff
+    def filter_completions(self, counts, first_size, second_size, cutoff):
+        if not counts:
+            return counts
+        positions = np.array(list(counts))
+        overlaps = np.array(list(counts.values()))
+        sizes = np.maximum(self.rummageo.sizes[positions], max(first_size, second_size))
+        bounds = np.full(len(positions), -np.inf)
+        valid = sizes <= self.population
+        bounds[valid] = ((self.gamma[sizes[valid]] - self.gamma[sizes[valid] - overlaps[valid]])
+                        - self.gamma[self.population]) + self.gamma[self.population - overlaps[valid]]
+        keep = bounds <= cutoff + BOUND_TOLERANCE
+        return dict(zip(positions[keep].tolist(), overlaps[keep].tolist()))
 
+    def warm_result(self, positions):
+        r, p, g = (library[position] for library, position in zip(
+            (self.rummagene, self.perturbseqr, self.rummageo), positions))
+        genes = r.genes & p.genes & g.genes
+        if len(genes) < self.minimum_overlap or max(len(r.genes), len(p.genes), len(g.genes)) > self.population:
+            return None
+        score = conservative_log_pvalue(r, p, g, len(genes), self.population, self.logsf)
+        if not math.isfinite(score) or score > self.eligibility_cutoff:
+            return None
+        return Crossing(r, p, g, genes, score, len(genes) / len(r.genes | p.genes | g.genes))
 
-def search_signatures(rummagene_signature_positions, search):
-    """One search kernel shared by serial execution and parallel workers."""
-    rummagene_sets, perturbseqr_sets, rummageo_sets = (
-        search.rummagene_sets, search.perturbseqr_sets, search.rummageo_sets,
-    )
-    population, minimum_overlap = search.population, search.minimum_overlap
-    perturbseqr_gene_index, rummageo_gene_index = search.perturbseqr_gene_index, search.rummageo_gene_index
-    cached_hypergeometric_log_pvalue = search.cached_hypergeometric_log_pvalue
-    heap = []
-    sequence = count()
-
-    for rummagene_signature_position in rummagene_signature_positions:
-        rummagene = rummagene_sets[rummagene_signature_position]
-        matching_perturbseqr_signature_positions = set()
-        for gene in rummagene.genes:
-            matching_perturbseqr_signature_positions.update(
-                perturbseqr_gene_index.get(gene, [])
-            )
-
-        # Keep original input order while visiting only overlapping signatures.
-        for perturbseqr_signature_position in sorted(matching_perturbseqr_signature_positions):
-            perturbseqr = perturbseqr_sets[perturbseqr_signature_position]
-            rummagene_perturbseqr_intersection = rummagene.genes & perturbseqr.genes
-            rummagene_perturbseqr_overlap_count = len(rummagene_perturbseqr_intersection)
-            if rummagene_perturbseqr_overlap_count < minimum_overlap:
+    def search(self, positions, shared_cutoff, record=None):
+        heap = TopK(self.top_k)
+        for position in positions:
+            cutoff = min(self.eligibility_cutoff, shared_cutoff.value)
+            rsize = int(self.rummagene.sizes[position])
+            maximum = min(rsize, self.maximum_overlap)
+            if rsize > self.population or maximum < self.minimum_overlap or self.bound(rsize, maximum) > cutoff + BOUND_TOLERANCE:
                 continue
-
-            log_pvalue_cutoff = search.cutoff(heap)
-            best_possible_log_pvalue = optimistic_log_pvalue(
-                (len(rummagene.genes), len(perturbseqr.genes)),
-                rummagene_perturbseqr_overlap_count, population,
-            )
-            # Reject impossible branches; preserve ties and near-boundary candidates.
-            if best_possible_log_pvalue > log_pvalue_cutoff + BOUND_LOG_PVALUE_TOLERANCE:
-                continue
-
-            rummageo_overlap_counts = Counter()
-            for gene in rummagene_perturbseqr_intersection:
-                for rummageo_signature_index in rummageo_gene_index.get(gene, []):
-                    rummageo_overlap_counts[rummageo_signature_index] += 1
-
-            # Only signatures reached through shared genes have a nonempty triple.
-            for rummageo_signature_index, overlap_count in rummageo_overlap_counts.items():
-                if overlap_count < minimum_overlap:
+            rummagene, rgeo_counts = self.rummagene[position], {}
+            pairs = count_overlaps(rummagene.genes, self.perturbseqr_index, len(self.perturbseqr), self.minimum_overlap)
+            for perturbseqr_position, first_overlap in pairs.items():
+                cutoff = min(cutoff, heap.cutoff)
+                psize = int(self.perturbseqr.sizes[perturbseqr_position])
+                if psize > self.population or self.bound(max(rsize, psize), first_overlap) > cutoff + BOUND_TOLERANCE:
                     continue
-                rummageo = rummageo_sets[rummageo_signature_index]
-
-                log_pvalue_cutoff = search.cutoff(heap)
-
-                # Actual overlap and all three sizes tighten the optimistic bound.
-                best_possible_log_pvalue = optimistic_log_pvalue(
-                    (len(rummagene.genes), len(perturbseqr.genes), len(rummageo.genes)),
-                    overlap_count, population,
-                )
-                if best_possible_log_pvalue > log_pvalue_cutoff + BOUND_LOG_PVALUE_TOLERANCE:
-                    continue
-
-                log_pvalue = conservative_log_pvalue(
-                    rummagene, perturbseqr, rummageo, overlap_count, population,
-                    rummagene_perturbseqr_overlap_count=rummagene_perturbseqr_overlap_count,
-                    hypergeometric_log_pvalue=cached_hypergeometric_log_pvalue,
-                    log_pvalue_cutoff=log_pvalue_cutoff,
-                )
-                if log_pvalue is None:
-                    continue
-                three_way_intersection = rummagene_perturbseqr_intersection & rummageo.genes
-                three_way_union = rummagene.genes | perturbseqr.genes | rummageo.genes
-                candidate = Crossing(
-                    rummagene, perturbseqr, rummageo, three_way_intersection,
-                    log_pvalue, overlap_count / len(three_way_union),
-                )
-                retain_candidate(heap, candidate, sequence, search.top_k)
-
-    return [entry[2] for entry in sorted(heap, key=lambda entry: entry[:2], reverse=True)]
+                perturbseqr = self.perturbseqr[perturbseqr_position]
+                first_intersection = rummagene.genes & perturbseqr.genes
+                completions = count_overlaps(first_intersection, self.rummageo_index, len(self.rummageo), self.minimum_overlap)
+                completions = self.filter_completions(completions, rsize, psize, cutoff)
+                for rummageo_position, overlap in completions.items():
+                    cutoff = min(cutoff, heap.cutoff)
+                    gsize = int(self.rummageo.sizes[rummageo_position])
+                    if gsize > self.population or self.bound(max(rsize, psize, gsize), overlap) > cutoff + BOUND_TOLERANCE:
+                        continue
+                    geo_score = float(self.logsf(overlap - 1, self.population, gsize, first_overlap))
+                    if geo_score > cutoff:
+                        continue
+                    pgeo_count = self.pair_overlap(perturbseqr_position, rummageo_position)
+                    r_score = float(self.logsf(overlap - 1, self.population, rsize, pgeo_count))
+                    if r_score > cutoff:
+                        continue
+                    rummageo = self.rummageo[rummageo_position]
+                    if rummageo_position not in rgeo_counts:
+                        rgeo_counts[rummageo_position] = len(rummagene.genes & rummageo.genes)
+                    rgeo_count = rgeo_counts[rummageo_position]
+                    p_score = float(self.logsf(overlap - 1, self.population, psize, rgeo_count))
+                    score = max(r_score, p_score, geo_score)
+                    if not math.isfinite(score) or score > cutoff:
+                        continue
+                    union_size = rsize + psize + gsize - first_overlap - pgeo_count - rgeo_count + overlap
+                    candidate = Crossing(rummagene, perturbseqr, rummageo,
+                        first_intersection & rummageo.genes, score, overlap / union_size)
+                    if record is not None:
+                        record(candidate)
+                    heap.retain(candidate)
+        return heap.ranked_results()
 
 
 _worker_search = None
+_shared_cutoff = None
 
 
-def search_one_signature(rummagene_signature_position):
-    results = search_signatures([rummagene_signature_position], _worker_search)
-    return [(
-        rummagene_signature_position,
-        _worker_search.perturbseqr_positions[id(result.perturbseqr)],
-        _worker_search.rummageo_positions[id(result.rummageo)],
-        result.genes, result.log_pvalue, result.jaccard,
-    ) for result in results]
+def search_signature_batch(positions):
+    return [(row.rummagene.position, row.perturbseqr.position, row.rummageo.position,
+             row.log_pvalue, row.jaccard) for row in _worker_search.search(positions, _shared_cutoff)]
 
 
-def cross(rummagene_sets, perturbseqr_sets, rummageo_sets, population,
-          *, minimum_overlap=5, maximum_pvalue=0.05, workers=1):
-    """Global top-K per collection; workers share read-only inputs through fork."""
-    if minimum_overlap < 1 or not 0 < maximum_pvalue <= 1 or workers < 1:
-        raise ValueError('Overlap/workers must be positive; maximum_pvalue must be in (0, 1]')
-    search = CrossingSearch(rummagene_sets, perturbseqr_sets, rummageo_sets, population,
-                            minimum_overlap, maximum_pvalue, TOP_K)
-    workers = min(workers, len(rummagene_sets))
-    if workers <= 1:
-        return search_signatures(range(len(rummagene_sets)), search)
-    if 'fork' not in multiprocessing.get_all_start_methods():
-        raise ValueError('Shared-index parallel crossing requires a POSIX fork platform; use workers=1')
+def restore_result(record, libraries):
+    r, p, g = (library[position] for library, position in zip(libraries, record[:3]))
+    return Crossing(r, p, g, r.genes & p.genes & g.genes, *record[3:])
 
-    global _worker_search
-    context = multiprocessing.get_context('fork')
-    search.shared_log_pvalue_cutoff = context.Value('d', math.log(maximum_pvalue))
-    search.perturbseqr_positions = {id(signature): position for position, signature in enumerate(perturbseqr_sets)}
-    search.rummageo_positions = {id(signature): position for position, signature in enumerate(rummageo_sets)}
-    _worker_search = search
-    heap, sequence = [], count()
-    executor = ProcessPoolExecutor(max_workers=workers, mp_context=context)
+
+def cross(rummagene_sets, perturbseqr_sets, rummageo_sets, population=POPULATION,
+          *, minimum_overlap=5, maximum_pvalue=.001, workers=1, top_k=TOP_K,
+          initial_triplets=(), rummagene_positions=None):
+    if population < 1 or minimum_overlap < 1 or not 0 < maximum_pvalue <= 1 or workers < 1 or top_k < 1:
+        raise ValueError('Invalid population, overlap, p-value, workers or top-K')
+    libraries = tuple(value if hasattr(value, 'sizes') else Library(value)
+                      for value in (rummagene_sets, perturbseqr_sets, rummageo_sets))
+    if minimum_overlap < 5 and any(isinstance(library, MappedLibrary) for library in libraries):
+        raise ValueError('Mapped inputs omit signatures below5genes; use minimum_overlap>=5')
+    if any(len(library) == 0 for library in libraries):
+        return []
+    search, heap = CrossingSearch(libraries, population, minimum_overlap, maximum_pvalue, top_k), TopK(top_k)
+    for positions in initial_triplets:
+        candidate = search.warm_result(positions)
+        if candidate is not None:
+            heap.retain(candidate)
+    global _worker_search, _shared_cutoff
+    context = multiprocessing.get_context('fork') if workers > 1 else multiprocessing.get_context()
+    _worker_search, _shared_cutoff = search, context.Value('d', min(search.eligibility_cutoff, heap.cutoff))
+    positions = iter(range(len(libraries[0])) if rummagene_positions is None else rummagene_positions)
+    executor = ProcessPoolExecutor(workers, mp_context=context) if workers > 1 else None
+    futures, completed, last_log = {}, 0, time.monotonic()
     try:
-        positions = iter(range(len(rummagene_sets)))
-        futures = {executor.submit(search_one_signature, next(positions))
-                   for _ in range(min(workers * 2, len(rummagene_sets)))}
-        while futures:
-            completed, _ = wait(futures, return_when=FIRST_COMPLETED)
-            for future in completed:
-                futures.remove(future)
-                for rummagene_position, perturbseqr_position, rummageo_position, genes, log_pvalue, jaccard in future.result():
-                    result = Crossing(rummagene_sets[rummagene_position], perturbseqr_sets[perturbseqr_position],
-                                      rummageo_sets[rummageo_position], genes, log_pvalue, jaccard)
-                    retain_candidate(heap, result, sequence, TOP_K)
-                if len(heap) == TOP_K:
-                    search.shared_log_pvalue_cutoff.value = min(math.log(maximum_pvalue), -heap[0][0][0])
-                next_position = next(positions, None)
-                if next_position is not None:
-                    futures.add(executor.submit(search_one_signature, next_position))
-    except BaseException:
-        if hasattr(executor, 'terminate_workers'):
-            executor.terminate_workers()
+        def submit():
+            batch = tuple(islice(positions, 8))
+            if not batch:
+                return False
+            if executor is None:
+                records = search_signature_batch(batch)
+                for record in records:
+                    heap.retain(restore_result(record, libraries))
+                return True
+            futures[executor.submit(search_signature_batch, batch)] = len(batch)
+            return True
+        if executor is None:
+            while submit():
+                _shared_cutoff.value = min(_shared_cutoff.value, heap.cutoff)
         else:
-            for process in executor._processes.values():
-                process.terminate()
+            for _ in range(workers * 2):
+                submit()
+            while futures:
+                done, _ = wait(futures, return_when=FIRST_COMPLETED)
+                for future in done:
+                    completed += futures.pop(future)
+                    for record in future.result():
+                        heap.retain(restore_result(record, libraries))
+                    _shared_cutoff.value = min(_shared_cutoff.value, heap.cutoff)
+                    submit()
+                if time.monotonic() - last_log > 30:
+                    print(f'Searched {completed:,}/{len(libraries[0]):,} sources; kept {len(heap):,}', flush=True)
+                    last_log = time.monotonic()
+    except BaseException:
+        if executor is not None:
+            if hasattr(executor, 'kill_workers'):
+                executor.kill_workers()
+            else:
+                for process in executor._processes.values():
+                    process.kill()
         raise
     finally:
-        executor.shutdown(wait=True, cancel_futures=True)
-        _worker_search = None
-    return [entry[2] for entry in sorted(heap, key=lambda entry: entry[:2], reverse=True)]
+        if executor is not None:
+            executor.shutdown(wait=True, cancel_futures=True)
+        _worker_search = _shared_cutoff = None
+    return heap.ranked_results()
 
 
-def write_tsv(path, results):
-    columns = [
-        'rank', 'rummagene', 'rummagene_row', 'perturbseqr', 'perturbseqr_row',
-        'rummageo', 'rummageo_row', 'overlap', 'log_pvalue', 'pvalue', 'jaccard', 'genes',
-    ]
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open('w', newline='', encoding='utf-8') as target:
-        writer = csv.DictWriter(target, fieldnames=columns, delimiter='\t', lineterminator='\n')
-        writer.writeheader()
-        for rank, result in enumerate(results, 1):
-            writer.writerow({
-                'rank': rank,
-                'rummagene': result.rummagene.term,
-                'rummagene_row': result.rummagene.input_row,
-                'perturbseqr': result.perturbseqr.term,
-                'perturbseqr_row': result.perturbseqr.input_row,
-                'rummageo': result.rummageo.term,
-                'rummageo_row': result.rummageo.input_row,
-                'overlap': len(result.genes),
-                'log_pvalue': result.log_pvalue,
-                'pvalue': math.exp(result.log_pvalue),
-                'jaccard': result.jaccard,
-                'genes': ' '.join(sorted(result.genes)),
-            })
-
-
-def project_path(value):
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_DIRECTORY / path
+def warm_triplets(path, libraries):
+    opener = gzip.open if path.suffix == '.gz' else open
+    with opener(path, 'rt') as source:
+        for row in csv.DictReader(source, delimiter='\t'):
+            yield tuple(library.by_row(int(row[name + '_row'])).position
+                        for library, name in zip(libraries, ('rummagene', 'perturbseqr', 'rummageo')))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--rummagene', type=project_path, default=DATA_DIRECTORY / 'rummagene.gmt')
-    parser.add_argument('--rummageo', type=project_path, default=DATA_DIRECTORY / 'rummageo-human.gmt.gz')
-    parser.add_argument('--perturbseqr', type=project_path, required=True, help='One human Perturb-Seqr library GMT')
-    parser.add_argument('--limit', type=int, help='Read only the first N sets from EACH input for a tiny demonstration')
-    parser.add_argument('--output', type=project_path)
-    parser.add_argument('--minimum-overlap', type=int, default=5)
-    parser.add_argument('--maximum-pvalue', type=float, default=0.05, help='Maximum conservative raw p-value')
-    parser.add_argument('--workers', type=int, default=min(4, os.cpu_count() or 1))
+    parser.add_argument('--index', type=Path, help='Validated mapped index directory for large inputs')
+    parser.add_argument('--rummagene', type=Path, default=DATA_DIRECTORY / 'rummagene.gmt')
+    parser.add_argument('--rummageo', type=Path, default=DATA_DIRECTORY / 'rummageo-human.gmt.gz')
+    parser.add_argument('--perturbseqr', type=Path, help='Human Perturb-Seqr GMT when --index is not supplied')
+    parser.add_argument('--warm', type=Path, help='Optional prior TSV; coordinates are rescored, never treated as coverage')
+    parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--workers', type=int, default=2)
     args = parser.parse_args()
-    if args.limit is not None and args.limit <= 0:
-        parser.error('--limit must be positive')
-    if args.minimum_overlap < 1 or not 0 < args.maximum_pvalue <= 1 or args.workers < 1:
-        parser.error('--minimum-overlap/--workers must be positive; --maximum-pvalue must be in (0, 1]')
-
-    rummagene = read_gmt(args.rummagene, args.limit)
-    perturbseqr = read_gmt(args.perturbseqr, args.limit)
-    rummageo = read_gmt(args.rummageo, args.limit)
-
-    population = human_protein_coding_count()
-    combinations = len(rummagene) * len(perturbseqr) * len(rummageo)
-    print(f'Search space: {combinations:,} triples; fixed human protein-coding population: {population:,}', flush=True)
-    started = time.perf_counter()
-    results = cross(rummagene, perturbseqr, rummageo, population,
-                    minimum_overlap=args.minimum_overlap, maximum_pvalue=args.maximum_pvalue, workers=args.workers)
-    library_name = args.perturbseqr.name.removesuffix('.gz').removesuffix('.gmt')
-    output = args.output or DATA_DIRECTORY / 'naive-crossings' / f'{library_name}.tsv'
-    write_tsv(output, results)
-    print(f'Retained {len(results):,} triples in {time.perf_counter() - started:.3f}s → {output}')
+    if args.workers < 1 or (args.index is None and args.perturbseqr is None):
+        parser.error('Use positive workers and either --index or --perturbseqr')
+    libraries = tuple(MappedLibrary(args.index, role) for role in (0, 2, 1)) if args.index else tuple(
+        Library.from_gmt(path) for path in (args.rummagene, args.perturbseqr, args.rummageo))
+    started = time.monotonic()
+    initial = warm_triplets(args.warm, libraries) if args.warm else ()
+    rows = cross(*libraries, workers=args.workers, initial_triplets=initial)
+    write_results(args.output, rows, libraries)
+    print(f'Retained {len(rows):,} triplets with N={POPULATION:,} in {time.monotonic() - started:.1f}s', flush=True)
 
 
 if __name__ == '__main__':
