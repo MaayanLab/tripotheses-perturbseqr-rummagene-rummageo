@@ -60,7 +60,7 @@ services:
   tripotheses-lite-app:
     profiles: [web]
     build: .
-    image: johnkgardner/tripotheses-lite-app:0.1.1
+    image: johnkgardner/tripotheses-lite-app:0.1.3
     platform: linux/amd64
     pull_policy: missing
     restart: unless-stopped
