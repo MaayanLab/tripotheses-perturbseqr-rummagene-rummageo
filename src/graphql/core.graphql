@@ -107,6 +107,21 @@ query TripothesisDetail($id: UUID!) {
   }
 }
 
+query TermSearchDownload($terms: [String]!, $first: Int = 10000) {
+  geneSetTermSearch(terms: $terms, first: $first) {
+    nodes {
+      term
+      title
+      nGeneIds
+      tripothesis {
+        threeWayOverlapCount
+        pValueConservative
+        sourceRecord
+      }
+    }
+  }
+}
+
 mutation AddUserGeneSet($genes: [String], $description: String = "") {
   addUserGeneSet(input: {genes: $genes, description: $description}) {
     userGeneSet {

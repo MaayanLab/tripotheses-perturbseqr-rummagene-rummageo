@@ -749,6 +749,14 @@ export type TermSearchQueryVariables = Exact<{
 
 export type TermSearchQuery = { __typename?: 'Query', geneSetTermSearch?: { __typename?: 'GeneSetsConnection', totalCount: number, nodes: Array<{ __typename?: 'GeneSet', id: any, term: string, title?: string | null, description?: string | null, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', threeWayOverlapCount?: number | null, pValueConservative?: number | null } | null }> } | null };
 
+export type TermSearchDownloadQueryVariables = Exact<{
+  terms: Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+}>;
+
+
+export type TermSearchDownloadQuery = { __typename?: 'Query', geneSetTermSearch?: { __typename?: 'GeneSetsConnection', nodes: Array<{ __typename?: 'GeneSet', term: string, title?: string | null, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', threeWayOverlapCount?: number | null, pValueConservative?: number | null, sourceRecord: any } | null }> } | null };
+
 export type TripothesisDetailQueryVariables = Exact<{
   id: Scalars['UUID']['input'];
 }>;
@@ -1017,6 +1025,51 @@ export function useTermSearchLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions
 export type TermSearchQueryHookResult = ReturnType<typeof useTermSearchQuery>;
 export type TermSearchLazyQueryHookResult = ReturnType<typeof useTermSearchLazyQuery>;
 export type TermSearchQueryResult = Apollo.QueryResult<TermSearchQuery, TermSearchQueryVariables>;
+export const TermSearchDownloadDocument = gql`
+    query TermSearchDownload($terms: [String]!, $first: Int = 10000) {
+  geneSetTermSearch(terms: $terms, first: $first) {
+    nodes {
+      term
+      title
+      nGeneIds
+      tripothesis {
+        threeWayOverlapCount
+        pValueConservative
+        sourceRecord
+      }
+    }
+  }
+}
+    `;
+
+/**
+ * __useTermSearchDownloadQuery__
+ *
+ * To run a query within a React component, call `useTermSearchDownloadQuery` and pass it any options that fit your needs.
+ * When your component renders, `useTermSearchDownloadQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useTermSearchDownloadQuery({
+ *   variables: {
+ *      terms: // value for 'terms'
+ *      first: // value for 'first'
+ *   },
+ * });
+ */
+export function useTermSearchDownloadQuery(baseOptions: Apollo.QueryHookOptions<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>(TermSearchDownloadDocument, options);
+      }
+export function useTermSearchDownloadLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>(TermSearchDownloadDocument, options);
+        }
+export type TermSearchDownloadQueryHookResult = ReturnType<typeof useTermSearchDownloadQuery>;
+export type TermSearchDownloadLazyQueryHookResult = ReturnType<typeof useTermSearchDownloadLazyQuery>;
+export type TermSearchDownloadQueryResult = Apollo.QueryResult<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>;
 export const TripothesisDetailDocument = gql`
     query TripothesisDetail($id: UUID!) {
   geneSet(id: $id) {

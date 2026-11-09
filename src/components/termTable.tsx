@@ -3,9 +3,6 @@ import { useViewGeneSetQuery } from '@/graphql';
 import GeneSetModal from '@/components/geneSetModal';
 import useQsState from '@/utils/useQsState';
 import Pagination from '@/components/pagination';
-import blobTsv from '@/utils/blobTsv';
-import clientDownloadBlob from '@/utils/clientDownloadBlob';
-import { splitTitle } from '@/utils/tripothesisTerms'
 import { SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
 
 const pageSize = 10
@@ -80,26 +77,11 @@ export default function TermTable({ terms }: { terms: TermRow[] }) {
             >&#x232B;</button>
           </div>
           <div className="tooltip" data-tip="Download results">
-            <button
-              type="button"
+            <a
               className="btn join-item font-bold text-2xl pb-1"
-              onClick={() => {
-                if (!dataFiltered) return
-                const blob = blobTsv(['tripothesisId', 'rummagene', 'rummageo', 'perturbseqr', 'nGenes', 'intersectionCount', 'crossingPvalue'], dataFiltered, item => {
-                  const parts = splitTitle(item.title)
-                  return {
-                    tripothesisId: item.term,
-                    rummagene: parts?.[0] ?? item.title,
-                    rummageo: parts?.[1] ?? '',
-                    perturbseqr: parts?.[2] ?? '',
-                    nGenes: item.nGeneIds,
-                    intersectionCount: item.tripothesis?.threeWayOverlapCount ?? item.nGeneIds,
-                    crossingPvalue: item.tripothesis?.pValueConservative,
-                  }
-                })
-                clientDownloadBlob(blob, 'results.tsv')
-              }}
-            >&#x21E9;</button>
+              href={`/term-search/download?q=${encodeURIComponent(queryString.q ?? '')}&f=${encodeURIComponent(searchTerm)}`}
+              download="results.tsv"
+            >&#x21E9;</a>
           </div>
         </div>
         <div className="overflow-x-auto">
