@@ -1,7 +1,8 @@
 import { TermSearchDownloadDocument, TermSearchDownloadQuery } from '@/graphql'
 import { getClient } from '@/lib/apollo/client'
 import streamTsv from '@/utils/streamTsv'
-import { TRIPOTHESIS_TSV_COLUMNS, parseTripothesis, tripothesisTsvRow } from '@/utils/tripothesisTerms'
+import { tripothesisTsvRows } from '@/utils/geoTitles'
+import { TRIPOTHESIS_TSV_COLUMNS } from '@/utils/tripothesisTerms'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,14 +18,15 @@ export async function GET(request: Request) {
   if (error) throw new Error(error.message)
   const nodes = (data.geneSetTermSearch?.nodes ?? [])
     .filter(node => [node.title, node.term].some(value => value?.toLowerCase().includes(f)))
+  const rows = await tripothesisTsvRows(nodes.map(node => node.tripothesis?.sourceRecord))
 
   return new Response(
     streamTsv(
       ['tripothesisId', ...TRIPOTHESIS_TSV_COLUMNS, 'nGenes', 'intersectionCount', 'crossingPvalue'],
-      nodes,
-      node => ({
+      nodes.map((node, i) => ({ node, row: rows[i] })),
+      ({ node, row }) => ({
         tripothesisId: node.term,
-        ...tripothesisTsvRow(parseTripothesis(node.tripothesis?.sourceRecord)),
+        ...row,
         nGenes: node.nGeneIds,
         intersectionCount: node.tripothesis?.threeWayOverlapCount ?? node.nGeneIds,
         crossingPvalue: node.tripothesis?.pValueConservative,

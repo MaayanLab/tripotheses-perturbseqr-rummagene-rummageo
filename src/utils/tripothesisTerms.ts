@@ -52,6 +52,8 @@ export type PerturbseqrTerm = {
   perturbationType: string
   perturbationMethod: string
   extras: string[]
+  /** The term as Perturb-Seqr stores it: without the library prefix and signature suffix. */
+  sourceTerm: string
   signatureId: string
   direction: Direction
   isGeneLibrary: boolean
@@ -63,12 +65,35 @@ const str = (value: unknown) => value == null ? '' : String(value).trim()
 const clean = (value: string) => value.replace(/\s+/g, ' ').trim()
 const pretty = (value: string) => clean(value.replace(/_/g, ' '))
 
+// UTF-8 decoded as Windows-1252 and then lowercased upstream, e.g. "µm" stored as "âµm" and "μ" as "î¼".
+const MOJIBAKE_LEAD: Record<string, number> = { 'â': 0xc2, 'Â': 0xc2, 'ã': 0xc3, 'Ã': 0xc3, 'î': 0xce, 'Î': 0xce, 'ï': 0xcf, 'Ï': 0xcf }
+const CP1252: Record<string, number> = {
+  '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87, 'ˆ': 0x88, '‰': 0x89, 'Š': 0x8a,
+  '‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
+  '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b, 'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f,
+}
+const utf8 = new TextDecoder('utf-8', { fatal: true })
+
+function fixMojibake(value: string) {
+  return value.replace(/([âÂãÃîÎïÏ])([\u0080-\u00bf€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ])/g, (match, lead: string, trail: string) => {
+    const byte = trail.charCodeAt(0) <= 0xff ? trail.charCodeAt(0) : CP1252[trail]
+    try {
+      return utf8.decode(new Uint8Array([MOJIBAKE_LEAD[lead], byte]))
+    } catch {
+      return match
+    }
+  })
+}
+
 function parseDirection(value: string): Direction {
   const v = value.toLowerCase()
   if (v === 'up') return 'up'
   if (v === 'dn' || v === 'down') return 'down'
   return ''
 }
+
+export const formatPValue = (p: number | null | undefined) =>
+  p == null ? '—' : p === 0 ? '< 5e-324' : p.toExponential(2)
 
 export function directionLabel(direction: Direction) {
   return direction === 'up' ? 'Upregulated' : direction === 'down' ? 'Downregulated' : ''
@@ -124,11 +149,17 @@ export function parseRummageoTerm(term: string, record: SourceRecord = {}): Rumm
     accessions,
     groupA: str(record.rummageo_group_first) || (m ? m[2] : ''),
     groupB: str(record.rummageo_group_second) || (m ? m[3] : ''),
-    groupALabel: clean(str(record.rummageo_group_first_label)),
-    groupBLabel: clean(str(record.rummageo_group_second_label)),
+    groupALabel: clean(fixMojibake(str(record.rummageo_group_first_label))),
+    groupBLabel: clean(fixMojibake(str(record.rummageo_group_second_label))),
     species: m ? m[4] : '',
     direction: m ? parseDirection(m[5]) : parseDirection(str(record.rummageo_direction).replace(/regulated$/, '')),
   }
+}
+
+/** GDS uid of a GEO series, for NCBI E-utilities (GSE<n> -> 200000000 + n). */
+export const geoSeriesUid = (accession: string) => {
+  const m = /^GSE(\d+)$/i.exec(accession.trim())
+  return m ? String(200000000 + Number(m[1])) : null
 }
 
 export const geoUrl = (accession: string) => `https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${accession}`
@@ -175,6 +206,7 @@ export function parsePerturbseqrTerm(term: string, library = ''): PerturbseqrTer
     signatureId = parts[parts.length - 1]
     parts = parts.slice(0, -1)
   }
+  const sourceTerm = parts.join('::')
   // direction is a space-separated suffix on the last field
   let direction: Direction = ''
   const last = parts[parts.length - 1] ?? ''
@@ -197,11 +229,20 @@ export function parsePerturbseqrTerm(term: string, library = ''): PerturbseqrTer
     perturbationType: isGeneLibrary ? parts[5] ?? '' : '',
     perturbationMethod: isGeneLibrary ? parts[6] ?? '' : '',
     extras: parts.slice(5),
+    sourceTerm,
     signatureId,
     direction,
     isGeneLibrary,
   }
 }
+
+/** Term-search links that bring up exactly one source gene set (each app matches the full term). */
+export const rummageneTermSearchUrl = (term: string) =>
+  `https://rummagene.com/term-search?page=1&q=${encodeURIComponent(term)}`
+export const rummageoTermSearchUrl = (term: string) =>
+  `https://rummageo.com/term-search?q=${encodeURIComponent(term)}`
+export const perturbseqrTermSearchUrl = (term: string) =>
+  `https://perturbseqr.maayanlab.cloud/term-search?page=1&q=${encodeURIComponent(term)}`
 
 export const perturbseqrSearchUrl = (q: string) =>
   `https://perturbseqr.maayanlab.cloud/term-search?q=${encodeURIComponent(q)}`
@@ -246,7 +287,7 @@ export function splitTitle(title: string | null | undefined): [string, string, s
 /** Per-source columns for TSV downloads, in display order. */
 export const TRIPOTHESIS_TSV_COLUMNS = [
   'rummagenePmcid', 'rummagenePaperTitle', 'rummageneGeneSet', 'rummageneTerm',
-  'rummageoGse', 'rummageoGroupA', 'rummageoGroupB', 'rummageoDirection', 'rummageoTerm',
+  'rummageoGse', 'rummageoTitle', 'rummageoGroupA', 'rummageoGroupB', 'rummageoDirection', 'rummageoTerm',
   'perturbseqrLibrary', 'perturbation', 'cellLine', 'tissue', 'timepoint', 'concentration',
   'perturbseqrDirection', 'perturbseqrTerm',
 ] as const
@@ -256,7 +297,8 @@ export type TripothesisTsvColumn = typeof TRIPOTHESIS_TSV_COLUMNS[number]
 /** Tabs or newlines inside a value would break the TSV row. */
 const tsvSafe = (value: string) => value.replace(/[\t\r\n]+/g, ' ')
 
-export function tripothesisTsvRow(parsed: ParsedTripothesis | null): Record<TripothesisTsvColumn, string> {
+/** `geoTitles` maps GEO accessions to study titles (see utils/geoTitles). */
+export function tripothesisTsvRow(parsed: ParsedTripothesis | null, geoTitles: Record<string, string> = {}): Record<TripothesisTsvColumn, string> {
   const g = parsed?.rummagene, e = parsed?.rummageo, p = parsed?.perturbseqr
   const row: Record<TripothesisTsvColumn, string> = {
     rummagenePmcid: g?.pmcid ?? '',
@@ -264,6 +306,7 @@ export function tripothesisTsvRow(parsed: ParsedTripothesis | null): Record<Trip
     rummageneGeneSet: g?.tableLabel ?? '',
     rummageneTerm: g?.raw ?? '',
     rummageoGse: e?.accessions.join(',') ?? '',
+    rummageoTitle: e?.accessions.map(acc => geoTitles[acc]).filter(Boolean).join(' | ') ?? '',
     rummageoGroupA: e ? e.groupALabel || `group ${e.groupA}` : '',
     rummageoGroupB: e ? e.groupBLabel || `group ${e.groupB}` : '',
     rummageoDirection: e?.direction ?? '',

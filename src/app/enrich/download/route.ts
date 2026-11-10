@@ -2,7 +2,8 @@ import { EnrichmentDownloadDocument, EnrichmentDownloadQuery, FetchUserGeneSetDo
 import { getClient } from '@/lib/apollo/client'
 import * as array from '@/utils/array'
 import streamTsv from '@/utils/streamTsv'
-import { TRIPOTHESIS_TSV_COLUMNS, parseTripothesis, tripothesisTsvRow } from '@/utils/tripothesisTerms'
+import { tripothesisTsvRows } from '@/utils/geoTitles'
+import { TRIPOTHESIS_TSV_COLUMNS } from '@/utils/tripothesisTerms'
 
 export const dynamic = 'force-dynamic'
 export async function GET(request: Request) {
@@ -31,28 +32,30 @@ export async function GET(request: Request) {
   }
   const nodes = enrichmentResults.currentBackground?.enrich?.nodes
   if (!nodes) throw new Error('No results')
+  const items = nodes.flatMap(node => node?.geneSets.nodes.map(geneSet => ({
+    geneSetHash: node.geneSetHash,
+    geneSet,
+    pvalue: node.pvalue,
+    adjPvalue: node.adjPvalue,
+    nOverlap: node.nOverlap,
+    oddsRatio: node.oddsRatio,
+  })) ?? [])
+  const rows = await tripothesisTsvRows(items.map(item => item.geneSet.tripothesis?.sourceRecord))
 
   return new Response(
     streamTsv(
       ['tripothesisId', ...TRIPOTHESIS_TSV_COLUMNS, 'geneSetSize', 'nOverlap', 'oddsRatio', 'pvalue', 'adjPvalue', 'geneSetHash'],
-      nodes.flatMap(node => node?.geneSets.nodes.map(geneSet => ({
-        geneSetHash: node.geneSetHash,
-        geneSet,
-        pvalue: node.pvalue,
-        adjPvalue: node.adjPvalue,
-        nOverlap: node.nOverlap,
-        oddsRatio: node.oddsRatio,
-      }))),
-      item => item?.geneSet ? {
+      items.map((item, i) => ({ ...item, row: rows[i] })),
+      item => ({
         tripothesisId: item.geneSet.term,
-        ...tripothesisTsvRow(parseTripothesis(item.geneSet.tripothesis?.sourceRecord)),
+        ...item.row,
         geneSetSize: item.geneSet.nGeneIds,
         nOverlap: item.nOverlap,
         oddsRatio: item.oddsRatio,
         pvalue: item.pvalue,
         adjPvalue: item.adjPvalue,
         geneSetHash: item.geneSetHash,
-      } : undefined,
+      }),
     ),
     {
       headers: {

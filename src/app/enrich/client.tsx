@@ -3,17 +3,15 @@ import React from 'react'
 import {
   FetchUserGeneSetQuery,
   useEnrichmentQueryQuery,
-  useFetchGeneInfoQuery,
   useFetchUserGeneSetQuery,
   useOverlapQueryQuery,
-  useViewGeneSetQuery
 } from '@/graphql'
 import Loading from '@/components/loading'
 import Pagination from '@/components/pagination'
 import useQsState from '@/utils/useQsState'
-import GeneSetModal from '@/components/geneSetModal'
+import { GeneListModal, useGeneRows } from '@/components/tripothesisGenes'
 import * as array from '@/utils/array'
-import { SOURCE_COLUMN_COUNT, SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
+import { RowActions, SOURCE_COLUMN_COUNT, ScrollTable, SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
 
 const pageSize = 10
 const statColumnCount = 5
@@ -27,10 +25,6 @@ type GeneSetModalT = {
   id: string,
   description: string,
   genes: string[]
-} | {
-  type: 'GeneSet',
-  id: string,
-  description: string,
 } | undefined
 
 
@@ -90,17 +84,17 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
           Download
         </a> : null}
       </form>
-      <div className="overflow-x-auto">
+      <ScrollTable>
         <table className={tripothesisTableClass}>
           <thead>
             <SourceGroupHeaders extraColumns={statColumnCount} />
             <tr>
               <SourceColumnHeaders />
-              <th className="text-right">Overlap</th>
-              <th className="text-right">Odds Ratio</th>
+              <th className="text-right" title="Input genes found in the Tripothesis gene set, out of its size">Overlap</th>
+              <th className="text-right" title="Odds Ratio">OR</th>
               <th className="text-right">P-value</th>
-              <th className="text-right">Adjusted P-value</th>
-              <th>Genes</th>
+              <th className="text-right" title="Adjusted P-value">Adj. P-value</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -109,7 +103,7 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
               result?.geneSets?.nodes?.map((geneSet, geneSetIndex) =>
                 <tr key={`${resultIndex}-${geneSetIndex}-${geneSet.id}`}>
                   <SourceCells id={geneSet.id} title={geneSet.title} />
-                  <td className="text-right tabular-nums">
+                  <td className="text-right tabular-nums whitespace-nowrap">
                     <button
                       className="link"
                       title="View the overlapping genes"
@@ -122,28 +116,20 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
                         })
                       }}
                     >{result.nOverlap}</button>
+                    <span className="text-gray-500"> of {geneSet.nGeneIds}</span>
                   </td>
                   <td className="text-right tabular-nums">{result.oddsRatio?.toPrecision(3)}</td>
                   <td className="text-right tabular-nums whitespace-nowrap">{result.pvalue?.toPrecision(3)}</td>
                   <td className="text-right tabular-nums whitespace-nowrap">{result.adjPvalue?.toPrecision(3)}</td>
                   <td>
-                    <button
-                      className="btn btn-xs btn-outline normal-case whitespace-nowrap"
-                      onClick={() => {
-                        setModalGeneSet({
-                          type: 'GeneSet',
-                          id: geneSet.id,
-                          description: geneSet.title || geneSet.term || '',
-                        })
-                      }}
-                    >View ({geneSet.nGeneIds})</button>
+                    <RowActions id={geneSet.id} title={geneSet.title ?? geneSet.term} />
                   </td>
                 </tr>
               ) ?? []
             )}
           </tbody>
         </table>
-      </div>
+      </ScrollTable>
       {results ?
         <div className="w-full flex flex-col items-center">
           <Pagination
@@ -160,43 +146,20 @@ function EnrichmentResults({ queryId, userGeneSet, setModalGeneSet }: { queryId?
   )
 }
 
-function GeneSetModalWrapper(props: { modalGeneSet: GeneSetModalT, setModalGeneSet: React.Dispatch<React.SetStateAction<GeneSetModalT>> }) {
-  const { data: geneSet } = useViewGeneSetQuery({
-    skip: props.modalGeneSet?.type !== 'GeneSet',
-    variables: props.modalGeneSet?.type === 'GeneSet' ? {
-      id: props.modalGeneSet.id,
-    } : undefined
-  })
-  const { data: overlap } = useOverlapQueryQuery({
-    skip: props.modalGeneSet?.type !== 'GeneSetOverlap',
-    variables: props.modalGeneSet?.type === 'GeneSetOverlap' ?  {
-      id: props.modalGeneSet.id,
-      genes: props.modalGeneSet?.genes,
-    } : undefined,
-  })
-  const { data: userGeneSet } = useFetchGeneInfoQuery({
-    skip: props.modalGeneSet?.type !== 'UserGeneSet',
-    variables: props.modalGeneSet?.type === 'UserGeneSet' ? {
-      genes: props.modalGeneSet.genes,
-    } : undefined,
-  })
-  return (
-    <GeneSetModal
-      showModal={props.modalGeneSet !== undefined}
-      term={props.modalGeneSet?.description}
-      geneset={
-        props.modalGeneSet?.type === 'GeneSet' ? geneSet?.geneSet?.genes.nodes
-        : props.modalGeneSet?.type === 'GeneSetOverlap' ? overlap?.geneSet?.overlap.nodes
-        : props.modalGeneSet?.type === 'UserGeneSet' ?
-          userGeneSet?.geneMap?.nodes ? userGeneSet.geneMap.nodes.map(({ gene, geneInfo }) => ({gene, ...geneInfo}))
-          : props.modalGeneSet.genes.map(symbol => ({ symbol }))
-        : undefined
-      }
-      setShowModal={show => {
-        if (!show) props.setModalGeneSet(undefined)
-      }}
-    />
-  )
+function InputGenesModal({ genes, description, onClose }: { genes: string[], description: string, onClose: () => void }) {
+  return <GeneListModal title="Input Gene Set" subtitle={description} genes={useGeneRows(genes)} name={description} onClose={onClose} />
+}
+
+function InputOverlapModal({ id, genes, description, onClose }: { id: string, genes: string[], description: string, onClose: () => void }) {
+  const { data } = useOverlapQueryQuery({ variables: { id, genes } })
+  return <GeneListModal title="Input Overlap" subtitle={description} genes={data?.geneSet?.overlap.nodes} name={description} onClose={onClose} />
+}
+
+function GeneSetModalWrapper({ modalGeneSet, setModalGeneSet }: { modalGeneSet: GeneSetModalT, setModalGeneSet: React.Dispatch<React.SetStateAction<GeneSetModalT>> }) {
+  const onClose = () => setModalGeneSet(undefined)
+  if (modalGeneSet?.type === 'UserGeneSet') return <InputGenesModal {...modalGeneSet} onClose={onClose} />
+  if (modalGeneSet?.type === 'GeneSetOverlap') return <InputOverlapModal {...modalGeneSet} onClose={onClose} />
+  return null
 }
 
 export default function EnrichClientPage({
@@ -217,7 +180,6 @@ export default function EnrichClientPage({
       <div className="flex flex-row gap-2 alert">
         <span className="prose">Input:</span>
         <label
-          htmlFor="geneSetModal"
           className="prose underline cursor-pointer"
           onClick={evt => {
             setModalGeneSet({

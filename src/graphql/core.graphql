@@ -97,11 +97,13 @@ query TermSearch(
 query TripothesisDetail($id: UUID!) {
   geneSet(id: $id) {
     id
+    term
+    nGeneIds
     tripothesis {
-      tripothesisId
       finalRank
-      sourceCrossing
-      modalityCrossing
+      threeWayOverlapCount
+      pValueConservative
+      threeWayJaccardSimilarity
       sourceRecord
     }
   }
@@ -170,5 +172,14 @@ query FetchGeneInfo($genes: [String]!) {
         summary
       }
     }
+  }
+}
+
+query SourceGeneSet($source: String!, $term: String!) {
+  sourceGeneSet(source: $source, term: $term) {
+    source
+    term
+    genes
+    nGenes
   }
 }

@@ -1,9 +1,8 @@
 import React from 'react'
-import { useViewGeneSetQuery } from '@/graphql';
-import GeneSetModal from '@/components/geneSetModal';
 import useQsState from '@/utils/useQsState';
 import Pagination from '@/components/pagination';
-import { SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
+import { formatPValue } from '@/utils/tripothesisTerms';
+import { RowActions, ScrollTable, SourceCells, SourceColumnHeaders, SourceGroupHeaders, tripothesisTableClass } from '@/components/tripothesisSourceColumns'
 
 const pageSize = 10
 
@@ -16,20 +15,13 @@ type TermRow = {
   tripothesis?: { threeWayOverlapCount?: number | null; pValueConservative?: number | null } | null
 }
 
-const formatP = (p: number | null | undefined) =>
-  p == null ? '—' : p === 0 ? '< 5e-324' : p.toExponential(2)
-
-function TripothesisRow({ row, onViewGenes }: { row: TermRow, onViewGenes: () => void }) {
+function TripothesisRow({ row }: { row: TermRow }) {
   return (
     <tr>
       <SourceCells id={row.id} title={row.title} />
       <td className="text-right tabular-nums">{row.tripothesis?.threeWayOverlapCount ?? row.nGeneIds ?? '—'}</td>
-      <td className="text-right tabular-nums whitespace-nowrap">{formatP(row.tripothesis?.pValueConservative)}</td>
-      <td>
-        <button className="btn btn-xs btn-outline normal-case whitespace-nowrap" onClick={onViewGenes}>
-          View ({row.nGeneIds})
-        </button>
-      </td>
+      <td className="text-right tabular-nums whitespace-nowrap">{formatPValue(row.tripothesis?.pValueConservative)}</td>
+      <td>{row.id ? <RowActions id={row.id} title={row.title ?? row.term} /> : null}</td>
     </tr>
   )
 }
@@ -44,18 +36,10 @@ export default function TermTable({ terms }: { terms: TermRow[] }) {
     }),
   [terms, searchTerm])
 
-  const [geneSetId, setGeneSetId] = React.useState(terms[0].id)
-  const [currTerm, setCurrTerm] = React.useState(terms[0].title || terms[0].term)
-  const [showModal, setShowModal] = React.useState(false)
-
-  const genesQuery = useViewGeneSetQuery({
-    variables: { id: geneSetId }
-  })
 
   return (
     <>
-      <GeneSetModal geneset={genesQuery?.data?.geneSet?.genes.nodes} term={currTerm} showModal={showModal} setShowModal={setShowModal}></GeneSetModal>
-      <div className='border m-5 mt-1'>
+      <div className='border mt-1 mb-3'>
         <div className='join flex flex-row place-content-end items-center pt-3 pr-3'>
           <span className="label-text text-base">Search:&nbsp;</span>
           <input
@@ -84,7 +68,7 @@ export default function TermTable({ terms }: { terms: TermRow[] }) {
             >&#x21E9;</a>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <ScrollTable>
           <table className={tripothesisTableClass}>
             <thead>
               <SourceGroupHeaders extraColumns={3} />
@@ -92,24 +76,16 @@ export default function TermTable({ terms }: { terms: TermRow[] }) {
                 <SourceColumnHeaders />
                 <th className="text-right" title="Number of genes shared by all three source sets">Overlap</th>
                 <th className="text-right" title="Conservative raw p-value for the three-way crossing">P-value</th>
-                <th>Genes</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {dataFiltered?.slice((page-1) * pageSize, page * pageSize).map(el => (
-                <TripothesisRow
-                  key={el.id}
-                  row={el}
-                  onViewGenes={() => {
-                    setCurrTerm(el.title || el.term || '')
-                    setGeneSetId(el?.id || '')
-                    setShowModal(true)
-                  }}
-                />
+                <TripothesisRow key={el.id} row={el} />
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollTable>
       </div>
       <div className="flex flex-col items-center">
         <Pagination

@@ -208,6 +208,8 @@ export type GeneSet = Node & {
   nodeId: Scalars['ID']['output'];
   /** Reads and enables pagination through a set of `Gene`. */
   overlap: GenesConnection;
+  /** Reads and enables pagination through a set of `SourceGeneSet`. */
+  sourceGeneSets: SourceGeneSetsConnection;
   term: Scalars['String']['output'];
   title?: Maybe<Scalars['String']['output']>;
   tripothesis?: Maybe<TripothesisMetadatum>;
@@ -230,6 +232,15 @@ export type GeneSetOverlapArgs = {
   before?: InputMaybe<Scalars['Cursor']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
   genes: Array<InputMaybe<Scalars['String']['input']>>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+};
+
+
+export type GeneSetSourceGeneSetsArgs = {
+  after?: InputMaybe<Scalars['Cursor']['input']>;
+  before?: InputMaybe<Scalars['Cursor']['input']>;
+  first?: InputMaybe<Scalars['Int']['input']>;
   last?: InputMaybe<Scalars['Int']['input']>;
   offset?: InputMaybe<Scalars['Int']['input']>;
 };
@@ -389,6 +400,11 @@ export type Query = Node & {
    * which can only query top level fields if they are in a particular form.
    */
   query: Query;
+  sourceGeneSet?: Maybe<SourceGeneSet>;
+  /** Reads a single `SourceGeneSet` using its globally unique `ID`. */
+  sourceGeneSetByNodeId?: Maybe<SourceGeneSet>;
+  /** Reads and enables pagination through a set of `SourceGeneSet`. */
+  sourceGeneSets?: Maybe<SourceGeneSetsConnection>;
   /** Reads and enables pagination through a set of `TripothesisMetadatum`. */
   tripothesisMetadata?: Maybe<TripothesisMetadataConnection>;
   tripothesisMetadatum?: Maybe<TripothesisMetadatum>;
@@ -517,6 +533,31 @@ export type QueryNodeArgs = {
 
 
 /** The root query type which gives access points into the data universe. */
+export type QuerySourceGeneSetArgs = {
+  source: Scalars['String']['input'];
+  term: Scalars['String']['input'];
+};
+
+
+/** The root query type which gives access points into the data universe. */
+export type QuerySourceGeneSetByNodeIdArgs = {
+  nodeId: Scalars['ID']['input'];
+};
+
+
+/** The root query type which gives access points into the data universe. */
+export type QuerySourceGeneSetsArgs = {
+  after?: InputMaybe<Scalars['Cursor']['input']>;
+  before?: InputMaybe<Scalars['Cursor']['input']>;
+  condition?: InputMaybe<SourceGeneSetCondition>;
+  first?: InputMaybe<Scalars['Int']['input']>;
+  last?: InputMaybe<Scalars['Int']['input']>;
+  offset?: InputMaybe<Scalars['Int']['input']>;
+  orderBy?: InputMaybe<Array<SourceGeneSetsOrderBy>>;
+};
+
+
+/** The root query type which gives access points into the data universe. */
 export type QueryTripothesisMetadataArgs = {
   after?: InputMaybe<Scalars['Cursor']['input']>;
   before?: InputMaybe<Scalars['Cursor']['input']>;
@@ -568,6 +609,57 @@ export type QueryUserGeneSetsArgs = {
   offset?: InputMaybe<Scalars['Int']['input']>;
   orderBy?: InputMaybe<Array<UserGeneSetsOrderBy>>;
 };
+
+/** Source-library gene sets referenced by tripothesis_metadata.source_record (sourceN, termN). */
+export type SourceGeneSet = Node & {
+  __typename?: 'SourceGeneSet';
+  genes: Array<Maybe<Scalars['String']['output']>>;
+  nGenes: Scalars['Int']['output'];
+  /** A globally unique identifier. Can be used in various places throughout the system to identify this single value. */
+  nodeId: Scalars['ID']['output'];
+  source: Scalars['String']['output'];
+  term: Scalars['String']['output'];
+};
+
+/**
+ * A condition to be used against `SourceGeneSet` object types. All fields are
+ * tested for equality and combined with a logical ‘and.’
+ */
+export type SourceGeneSetCondition = {
+  /** Checks for equality with the object’s `source` field. */
+  source?: InputMaybe<Scalars['String']['input']>;
+};
+
+/** A connection to a list of `SourceGeneSet` values. */
+export type SourceGeneSetsConnection = {
+  __typename?: 'SourceGeneSetsConnection';
+  /** A list of edges which contains the `SourceGeneSet` and cursor to aid in pagination. */
+  edges: Array<SourceGeneSetsEdge>;
+  /** A list of `SourceGeneSet` objects. */
+  nodes: Array<SourceGeneSet>;
+  /** Information to aid in pagination. */
+  pageInfo: PageInfo;
+  /** The count of *all* `SourceGeneSet` you could get from the connection. */
+  totalCount: Scalars['Int']['output'];
+};
+
+/** A `SourceGeneSet` edge in the connection. */
+export type SourceGeneSetsEdge = {
+  __typename?: 'SourceGeneSetsEdge';
+  /** A cursor for use in pagination. */
+  cursor?: Maybe<Scalars['Cursor']['output']>;
+  /** The `SourceGeneSet` at the end of the edge. */
+  node: SourceGeneSet;
+};
+
+/** Methods to use when ordering `SourceGeneSet`. */
+export enum SourceGeneSetsOrderBy {
+  Natural = 'NATURAL',
+  PrimaryKeyAsc = 'PRIMARY_KEY_ASC',
+  PrimaryKeyDesc = 'PRIMARY_KEY_DESC',
+  SourceAsc = 'SOURCE_ASC',
+  SourceDesc = 'SOURCE_DESC'
+}
 
 /** A connection to a list of `TripothesisMetadatum` values. */
 export type TripothesisMetadataConnection = {
@@ -749,6 +841,13 @@ export type TermSearchQueryVariables = Exact<{
 
 export type TermSearchQuery = { __typename?: 'Query', geneSetTermSearch?: { __typename?: 'GeneSetsConnection', totalCount: number, nodes: Array<{ __typename?: 'GeneSet', id: any, term: string, title?: string | null, description?: string | null, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', threeWayOverlapCount?: number | null, pValueConservative?: number | null } | null }> } | null };
 
+export type TripothesisDetailQueryVariables = Exact<{
+  id: Scalars['UUID']['input'];
+}>;
+
+
+export type TripothesisDetailQuery = { __typename?: 'Query', geneSet?: { __typename?: 'GeneSet', id: any, term: string, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', finalRank?: number | null, threeWayOverlapCount?: number | null, pValueConservative?: number | null, threeWayJaccardSimilarity?: number | null, sourceRecord: any } | null } | null };
+
 export type TermSearchDownloadQueryVariables = Exact<{
   terms: Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>;
   first?: InputMaybe<Scalars['Int']['input']>;
@@ -756,13 +855,6 @@ export type TermSearchDownloadQueryVariables = Exact<{
 
 
 export type TermSearchDownloadQuery = { __typename?: 'Query', geneSetTermSearch?: { __typename?: 'GeneSetsConnection', nodes: Array<{ __typename?: 'GeneSet', term: string, title?: string | null, nGeneIds: number, tripothesis?: { __typename?: 'TripothesisMetadatum', threeWayOverlapCount?: number | null, pValueConservative?: number | null, sourceRecord: any } | null }> } | null };
-
-export type TripothesisDetailQueryVariables = Exact<{
-  id: Scalars['UUID']['input'];
-}>;
-
-
-export type TripothesisDetailQuery = { __typename?: 'Query', geneSet?: { __typename?: 'GeneSet', id: any, tripothesis?: { __typename?: 'TripothesisMetadatum', tripothesisId: string, finalRank?: number | null, sourceCrossing?: string | null, modalityCrossing?: string | null, sourceRecord: any } | null } | null };
 
 export type AddUserGeneSetMutationVariables = Exact<{
   genes?: InputMaybe<Array<InputMaybe<Scalars['String']['input']>> | InputMaybe<Scalars['String']['input']>>;
@@ -793,6 +885,14 @@ export type FetchGeneInfoQueryVariables = Exact<{
 
 
 export type FetchGeneInfoQuery = { __typename?: 'Query', geneMap?: { __typename?: 'GeneMappingsConnection', nodes: Array<{ __typename?: 'GeneMapping', gene?: string | null, geneInfo?: { __typename?: 'Gene', symbol: string, ncbiGeneId?: number | null, description?: string | null, summary?: string | null } | null }> } | null };
+
+export type SourceGeneSetQueryVariables = Exact<{
+  source: Scalars['String']['input'];
+  term: Scalars['String']['input'];
+}>;
+
+
+export type SourceGeneSetQuery = { __typename?: 'Query', sourceGeneSet?: { __typename?: 'SourceGeneSet', source: string, term: string, genes: Array<string | null>, nGenes: number } | null };
 
 
 export const StatsDocument = gql`
@@ -1025,6 +1125,50 @@ export function useTermSearchLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions
 export type TermSearchQueryHookResult = ReturnType<typeof useTermSearchQuery>;
 export type TermSearchLazyQueryHookResult = ReturnType<typeof useTermSearchLazyQuery>;
 export type TermSearchQueryResult = Apollo.QueryResult<TermSearchQuery, TermSearchQueryVariables>;
+export const TripothesisDetailDocument = gql`
+    query TripothesisDetail($id: UUID!) {
+  geneSet(id: $id) {
+    id
+    term
+    nGeneIds
+    tripothesis {
+      finalRank
+      threeWayOverlapCount
+      pValueConservative
+      threeWayJaccardSimilarity
+      sourceRecord
+    }
+  }
+}
+    `;
+
+/**
+ * __useTripothesisDetailQuery__
+ *
+ * To run a query within a React component, call `useTripothesisDetailQuery` and pass it any options that fit your needs.
+ * When your component renders, `useTripothesisDetailQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useTripothesisDetailQuery({
+ *   variables: {
+ *      id: // value for 'id'
+ *   },
+ * });
+ */
+export function useTripothesisDetailQuery(baseOptions: Apollo.QueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
+      }
+export function useTripothesisDetailLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
+        }
+export type TripothesisDetailQueryHookResult = ReturnType<typeof useTripothesisDetailQuery>;
+export type TripothesisDetailLazyQueryHookResult = ReturnType<typeof useTripothesisDetailLazyQuery>;
+export type TripothesisDetailQueryResult = Apollo.QueryResult<TripothesisDetailQuery, TripothesisDetailQueryVariables>;
 export const TermSearchDownloadDocument = gql`
     query TermSearchDownload($terms: [String]!, $first: Int = 10000) {
   geneSetTermSearch(terms: $terms, first: $first) {
@@ -1070,48 +1214,6 @@ export function useTermSearchDownloadLazyQuery(baseOptions?: Apollo.LazyQueryHoo
 export type TermSearchDownloadQueryHookResult = ReturnType<typeof useTermSearchDownloadQuery>;
 export type TermSearchDownloadLazyQueryHookResult = ReturnType<typeof useTermSearchDownloadLazyQuery>;
 export type TermSearchDownloadQueryResult = Apollo.QueryResult<TermSearchDownloadQuery, TermSearchDownloadQueryVariables>;
-export const TripothesisDetailDocument = gql`
-    query TripothesisDetail($id: UUID!) {
-  geneSet(id: $id) {
-    id
-    tripothesis {
-      tripothesisId
-      finalRank
-      sourceCrossing
-      modalityCrossing
-      sourceRecord
-    }
-  }
-}
-    `;
-
-/**
- * __useTripothesisDetailQuery__
- *
- * To run a query within a React component, call `useTripothesisDetailQuery` and pass it any options that fit your needs.
- * When your component renders, `useTripothesisDetailQuery` returns an object from Apollo Client that contains loading, error, and data properties
- * you can use to render your UI.
- *
- * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
- *
- * @example
- * const { data, loading, error } = useTripothesisDetailQuery({
- *   variables: {
- *      id: // value for 'id'
- *   },
- * });
- */
-export function useTripothesisDetailQuery(baseOptions: Apollo.QueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
-        const options = {...defaultOptions, ...baseOptions}
-        return Apollo.useQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
-      }
-export function useTripothesisDetailLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<TripothesisDetailQuery, TripothesisDetailQueryVariables>) {
-          const options = {...defaultOptions, ...baseOptions}
-          return Apollo.useLazyQuery<TripothesisDetailQuery, TripothesisDetailQueryVariables>(TripothesisDetailDocument, options);
-        }
-export type TripothesisDetailQueryHookResult = ReturnType<typeof useTripothesisDetailQuery>;
-export type TripothesisDetailLazyQueryHookResult = ReturnType<typeof useTripothesisDetailLazyQuery>;
-export type TripothesisDetailQueryResult = Apollo.QueryResult<TripothesisDetailQuery, TripothesisDetailQueryVariables>;
 export const AddUserGeneSetDocument = gql`
     mutation AddUserGeneSet($genes: [String], $description: String = "") {
   addUserGeneSet(input: {genes: $genes, description: $description}) {
@@ -1279,3 +1381,42 @@ export function useFetchGeneInfoLazyQuery(baseOptions?: Apollo.LazyQueryHookOpti
 export type FetchGeneInfoQueryHookResult = ReturnType<typeof useFetchGeneInfoQuery>;
 export type FetchGeneInfoLazyQueryHookResult = ReturnType<typeof useFetchGeneInfoLazyQuery>;
 export type FetchGeneInfoQueryResult = Apollo.QueryResult<FetchGeneInfoQuery, FetchGeneInfoQueryVariables>;
+export const SourceGeneSetDocument = gql`
+    query SourceGeneSet($source: String!, $term: String!) {
+  sourceGeneSet(source: $source, term: $term) {
+    source
+    term
+    genes
+    nGenes
+  }
+}
+    `;
+
+/**
+ * __useSourceGeneSetQuery__
+ *
+ * To run a query within a React component, call `useSourceGeneSetQuery` and pass it any options that fit your needs.
+ * When your component renders, `useSourceGeneSetQuery` returns an object from Apollo Client that contains loading, error, and data properties
+ * you can use to render your UI.
+ *
+ * @param baseOptions options that will be passed into the query, supported options are listed on: https://www.apollographql.com/docs/react/api/react-hooks/#options;
+ *
+ * @example
+ * const { data, loading, error } = useSourceGeneSetQuery({
+ *   variables: {
+ *      source: // value for 'source'
+ *      term: // value for 'term'
+ *   },
+ * });
+ */
+export function useSourceGeneSetQuery(baseOptions: Apollo.QueryHookOptions<SourceGeneSetQuery, SourceGeneSetQueryVariables>) {
+        const options = {...defaultOptions, ...baseOptions}
+        return Apollo.useQuery<SourceGeneSetQuery, SourceGeneSetQueryVariables>(SourceGeneSetDocument, options);
+      }
+export function useSourceGeneSetLazyQuery(baseOptions?: Apollo.LazyQueryHookOptions<SourceGeneSetQuery, SourceGeneSetQueryVariables>) {
+          const options = {...defaultOptions, ...baseOptions}
+          return Apollo.useLazyQuery<SourceGeneSetQuery, SourceGeneSetQueryVariables>(SourceGeneSetDocument, options);
+        }
+export type SourceGeneSetQueryHookResult = ReturnType<typeof useSourceGeneSetQuery>;
+export type SourceGeneSetLazyQueryHookResult = ReturnType<typeof useSourceGeneSetLazyQuery>;
+export type SourceGeneSetQueryResult = Apollo.QueryResult<SourceGeneSetQuery, SourceGeneSetQueryVariables>;
