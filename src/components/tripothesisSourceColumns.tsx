@@ -120,7 +120,7 @@ export function SourceCells({ id, title }: { id?: string, title?: string | null 
       <td className={`${GEO} min-w-[140px] max-w-[180px]`}>
         {e ? <>
           <Trunc text={e.accessions.map(acc => geoTitles[acc.toUpperCase()] ?? acc).join('; ')} />
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-0.5">
             {e.accessions.map(acc => <Ext key={acc} href={geoUrl(acc)}>{acc}</Ext>)}
             <GeneSetButton source={parsed?.sources[1]} term={e.raw} label="RummaGEO" />
           </div>
