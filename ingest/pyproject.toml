@@ -17,3 +17,6 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["ingest*"]
+
+[tool.setuptools.package-data]
+ingest = ["data/*"]
